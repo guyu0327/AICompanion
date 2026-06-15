@@ -1,0 +1,13 @@
+{
+  "itemGroup.aicompanion": "Example Mod Tab",
+  "block.aicompanion.example_block": "Example Block",
+  "item.aicompanion.example_item": "Example Item",
+
+  "aicompanion.configuration.title": "AICompanion Configs",
+  "aicompanion.configuration.section.aicompanion.common.toml": "AICompanion Configs",
+  "aicompanion.configuration.section.aicompanion.common.toml.title": "AICompanion Configs",
+  "aicompanion.configuration.items": "Item List",
+  "aicompanion.configuration.logDirtBlock": "Log Dirt Block",
+  "aicompanion.configuration.magicNumberIntroduction": "Magic Number Text",
+  "aicompanion.configuration.magicNumber": "Magic Number"
+}
