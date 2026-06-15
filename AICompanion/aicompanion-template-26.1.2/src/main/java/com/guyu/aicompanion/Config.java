@@ -1,42 +1,77 @@
 package com.guyu.aicompanion;
 
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
-
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
-import net.minecraft.world.item.Item;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-// An example config class. This is not required, but it's a good idea to have one to keep your config organized.
-// Demonstrates how to use Neo's config APIs
 public class Config {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
-    public static final ModConfigSpec.BooleanValue LOG_DIRT_BLOCK = BUILDER
-            .comment("Whether to log the dirt block on common setup")
-            .define("logDirtBlock", true);
+    // -- API Settings --
+    public static final ModConfigSpec.ConfigValue<String> API_URL;
+    public static final ModConfigSpec.ConfigValue<String> API_KEY;
+    public static final ModConfigSpec.ConfigValue<String> API_ENDPOINT;
+    public static final ModConfigSpec.IntValue API_TIMEOUT;
 
-    public static final ModConfigSpec.IntValue MAGIC_NUMBER = BUILDER
-            .comment("A magic number")
-            .defineInRange("magicNumber", 42, 0, Integer.MAX_VALUE);
+    // -- Model Settings --
+    public static final ModConfigSpec.ConfigValue<String> MODEL_NAME;
+    public static final ModConfigSpec.DoubleValue TEMPERATURE;
+    public static final ModConfigSpec.IntValue MAX_TOKENS;
 
-    public static final ModConfigSpec.ConfigValue<String> MAGIC_NUMBER_INTRODUCTION = BUILDER
-            .comment("What you want the introduction message to be for the magic number")
-            .define("magicNumberIntroduction", "The magic number is... ");
+    // -- Behavior Settings --
+    public static final ModConfigSpec.ConfigValue<String> SYSTEM_PROMPT;
 
-    // a list of strings that are treated as resource locations for items
-    public static final ModConfigSpec.ConfigValue<List<? extends String>> ITEM_STRINGS = BUILDER
-            .comment("A list of items to log on common setup.")
-            .defineListAllowEmpty("items", List.of("minecraft:iron_ingot"), () -> "", Config::validateItemName);
+    public static final ModConfigSpec SPEC;
 
-    static final ModConfigSpec SPEC = BUILDER.build();
+    static {
+        // -- API Settings --
+        BUILDER.comment("API connection settings")
+               .push("api");
 
-    private static boolean validateItemName(final Object obj) {
-        return obj instanceof String itemName && BuiltInRegistries.ITEM.containsKey(Identifier.parse(itemName));
+        API_URL = BUILDER
+                .comment("The base URL of the AI API (e.g. https://api.openai.com)")
+                .define("apiUrl", "https://api.openai.com");
+
+        API_KEY = BUILDER
+                .comment("Your API key for authentication. Keep this secret!")
+                .define("apiKey", "");
+
+        API_ENDPOINT = BUILDER
+                .comment("The chat completions endpoint path appended to the API URL")
+                .define("endpoint", "/v1/chat/completions");
+
+        API_TIMEOUT = BUILDER
+                .comment("HTTP request timeout in seconds")
+                .defineInRange("timeout", 30, 1, 300);
+
+        BUILDER.pop();
+
+        // -- Model Settings --
+        BUILDER.comment("AI model settings")
+               .push("model");
+
+        MODEL_NAME = BUILDER
+                .comment("The model identifier to use for chat completions")
+                .define("modelName", "gpt-3.5-turbo");
+
+        TEMPERATURE = BUILDER
+                .comment("Sampling temperature. 0.0 = deterministic, 2.0 = most random")
+                .defineInRange("temperature", 0.7, 0.0, 2.0);
+
+        MAX_TOKENS = BUILDER
+                .comment("Maximum number of tokens to generate in the response")
+                .defineInRange("maxTokens", 1024, 1, 128000);
+
+        BUILDER.pop();
+
+        // -- Behavior Settings --
+        BUILDER.comment("AI behavior settings")
+               .push("behavior");
+
+        SYSTEM_PROMPT = BUILDER
+                .comment("The system prompt that defines the AI companion personality and behavior")
+                .define("systemPrompt", "You are a helpful and friendly AI companion in Minecraft.");
+
+        BUILDER.pop();
+
+        SPEC = BUILDER.build();
     }
 }

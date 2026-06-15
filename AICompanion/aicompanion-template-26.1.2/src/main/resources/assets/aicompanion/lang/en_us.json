@@ -1,13 +1,27 @@
 {
-  "itemGroup.aicompanion": "Example Mod Tab",
+  "itemGroup.aicompanion": "AI Companion",
   "block.aicompanion.example_block": "Example Block",
   "item.aicompanion.example_item": "Example Item",
 
-  "aicompanion.configuration.title": "AICompanion Configs",
-  "aicompanion.configuration.section.aicompanion.common.toml": "AICompanion Configs",
-  "aicompanion.configuration.section.aicompanion.common.toml.title": "AICompanion Configs",
-  "aicompanion.configuration.items": "Item List",
-  "aicompanion.configuration.logDirtBlock": "Log Dirt Block",
-  "aicompanion.configuration.magicNumberIntroduction": "Magic Number Text",
-  "aicompanion.configuration.magicNumber": "Magic Number"
+  "aicompanion.configuration.title": "AI Companion Settings",
+  "aicompanion.configuration.section.aicompanion.client.toml": "Client Settings",
+  "aicompanion.configuration.section.aicompanion.client.toml.title": "Client Settings",
+
+  "aicompanion.configuration.section.api": "API Settings",
+  "aicompanion.configuration.section.api.title": "API Settings",
+  "aicompanion.configuration.section.model": "Model Settings",
+  "aicompanion.configuration.section.model.title": "Model Settings",
+  "aicompanion.configuration.section.behavior": "Behavior Settings",
+  "aicompanion.configuration.section.behavior.title": "Behavior Settings",
+
+  "aicompanion.configuration.apiUrl": "API URL",
+  "aicompanion.configuration.apiKey": "API Key",
+  "aicompanion.configuration.endpoint": "Endpoint Path",
+  "aicompanion.configuration.timeout": "Timeout (seconds)",
+
+  "aicompanion.configuration.modelName": "Model Name",
+  "aicompanion.configuration.temperature": "Temperature",
+  "aicompanion.configuration.maxTokens": "Max Tokens",
+
+  "aicompanion.configuration.systemPrompt": "System Prompt"
 }

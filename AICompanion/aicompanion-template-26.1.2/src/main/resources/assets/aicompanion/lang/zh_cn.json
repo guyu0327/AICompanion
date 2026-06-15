@@ -1,0 +1,27 @@
+{
+  "itemGroup.aicompanion": "AI 伙伴",
+  "block.aicompanion.example_block": "示例方块",
+  "item.aicompanion.example_item": "示例物品",
+
+  "aicompanion.configuration.title": "AI 伙伴设置",
+  "aicompanion.configuration.section.aicompanion.client.toml": "客户端设置",
+  "aicompanion.configuration.section.aicompanion.client.toml.title": "客户端设置",
+
+  "aicompanion.configuration.section.api": "API 设置",
+  "aicompanion.configuration.section.api.title": "API 设置",
+  "aicompanion.configuration.section.model": "模型设置",
+  "aicompanion.configuration.section.model.title": "模型设置",
+  "aicompanion.configuration.section.behavior": "行为设置",
+  "aicompanion.configuration.section.behavior.title": "行为设置",
+
+  "aicompanion.configuration.apiUrl": "API 地址",
+  "aicompanion.configuration.apiKey": "API 密钥",
+  "aicompanion.configuration.endpoint": "端点路径",
+  "aicompanion.configuration.timeout": "超时时间（秒）",
+
+  "aicompanion.configuration.modelName": "模型名称",
+  "aicompanion.configuration.temperature": "温度",
+  "aicompanion.configuration.maxTokens": "最大令牌数",
+
+  "aicompanion.configuration.systemPrompt": "系统提示词"
+}
