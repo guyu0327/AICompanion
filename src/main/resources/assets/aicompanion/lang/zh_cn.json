@@ -23,5 +23,10 @@
   "aicompanion.configuration.temperature": "温度",
   "aicompanion.configuration.maxTokens": "最大令牌数",
 
-  "aicompanion.configuration.systemPrompt": "系统提示词"
+  "aicompanion.configuration.systemPrompt": "系统提示词",
+
+  "entity.aicompanion.ai_companion": "AI 伙伴",
+
+  "command.aicompanion.spawn.success": "AI 伙伴已召唤！",
+  "command.aicompanion.spawn.failed": "召唤 AI 伙伴失败。"
 }

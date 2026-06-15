@@ -2,10 +2,18 @@ package com.guyu.aicompanion;
 
 import org.slf4j.Logger;
 
+import com.guyu.aicompanion.command.SpawnCommand;
+import com.guyu.aicompanion.entity.AICompanionEntity;
 import com.mojang.logging.LogUtils;
 
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.MobCategory;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
@@ -22,6 +30,8 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredHolder;
@@ -41,6 +51,20 @@ public class AICompanion {
     public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(MODID);
     // Create a Deferred Register to hold CreativeModeTabs which will all be registered under the "aicompanion" namespace
     public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MODID);
+    // Create a Deferred Register to hold EntityTypes
+    public static final DeferredRegister<EntityType<?>> ENTITY_TYPES = DeferredRegister.create(Registries.ENTITY_TYPE, MODID);
+
+    // Registers the AI Companion entity type
+    public static final DeferredHolder<EntityType<?>, EntityType<AICompanionEntity>> COMPANION =
+            ENTITY_TYPES.register("ai_companion",
+                    () -> EntityType.Builder.of(AICompanionEntity::new, MobCategory.CREATURE)
+                            .sized(0.6F, 1.8F)
+                            .eyeHeight(1.62F)
+                            .clientTrackingRange(10)
+                            .updateInterval(3)
+                            .build(ResourceKey.create(Registries.ENTITY_TYPE,
+                                    Identifier.fromNamespaceAndPath(MODID, "ai_companion")))
+            );
 
     // Creates a new Block with the id "aicompanion:example_block", combining the namespace and path
     public static final DeferredBlock<Block> EXAMPLE_BLOCK = BLOCKS.registerSimpleBlock("example_block", p -> p.mapColor(MapColor.STONE));
@@ -72,6 +96,11 @@ public class AICompanion {
         ITEMS.register(modEventBus);
         // Register the Deferred Register to the mod event bus so tabs get registered
         CREATIVE_MODE_TABS.register(modEventBus);
+        // Register the Deferred Register to the mod event bus so entities get registered
+        ENTITY_TYPES.register(modEventBus);
+
+        // Register entity attributes
+        modEventBus.addListener(this::registerEntityAttributes);
 
         // Register ourselves for server and other game events we are interested in.
         // Note that this is necessary if and only if we want *this* class (AICompanion) to respond directly to events.
@@ -98,5 +127,22 @@ public class AICompanion {
     public void onServerStarting(ServerStartingEvent event) {
         // Do something when the server starts
         LOGGER.info("HELLO from server starting");
+    }
+
+    // Register entity attributes when entities are being set up
+    private void registerEntityAttributes(EntityAttributeCreationEvent event) {
+        event.put(COMPANION.get(),
+                Mob.createMobAttributes()
+                        .add(Attributes.MAX_HEALTH, 40.0)
+                        .add(Attributes.MOVEMENT_SPEED, 0.3)
+                        .add(Attributes.ATTACK_DAMAGE, 4.0)
+                        .build()
+        );
+    }
+
+    // Register commands on the NeoForge event bus
+    @SubscribeEvent
+    public void onRegisterCommands(RegisterCommandsEvent event) {
+        SpawnCommand.register(event.getDispatcher());
     }
 }

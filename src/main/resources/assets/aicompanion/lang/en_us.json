@@ -23,5 +23,10 @@
   "aicompanion.configuration.temperature": "Temperature",
   "aicompanion.configuration.maxTokens": "Max Tokens",
 
-  "aicompanion.configuration.systemPrompt": "System Prompt"
+  "aicompanion.configuration.systemPrompt": "System Prompt",
+
+  "entity.aicompanion.ai_companion": "AI Companion",
+
+  "command.aicompanion.spawn.success": "AI Companion spawned!",
+  "command.aicompanion.spawn.failed": "Failed to spawn AI Companion."
 }
