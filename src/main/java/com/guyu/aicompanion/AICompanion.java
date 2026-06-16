@@ -2,6 +2,7 @@ package com.guyu.aicompanion;
 
 import org.slf4j.Logger;
 
+import com.guyu.aicompanion.command.ActionCommand;
 import com.guyu.aicompanion.command.SpawnCommand;
 import com.guyu.aicompanion.entity.AICompanionEntity;
 import com.mojang.logging.LogUtils;
@@ -144,5 +145,6 @@ public class AICompanion {
     @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
         SpawnCommand.register(event.getDispatcher());
+        ActionCommand.register(event.getDispatcher());
     }
 }
