@@ -202,6 +202,10 @@ public class ActionExecutor {
             return;
         }
         mineTarget     = action.getTargetPos();
+
+        // Auto-equip best tool from inventory before mining
+        autoEquipToolForBlock(mineTarget);
+
         mineProgress   = 0;
         mineTotalTicks = calculateMineTicks(mineTarget);
 
@@ -301,6 +305,60 @@ public class ActionExecutor {
     private void resetBlockCrack(ServerLevel level) {
         if (mineTarget != null) {
             level.destroyBlockProgress(companion.getId(), mineTarget, -1);
+        }
+    }
+
+    /**
+     * Auto-equip the best tool from inventory for mining a specific block.
+     * If current hand item is already good enough, does nothing.
+     */
+    private void autoEquipToolForBlock(BlockPos pos) {
+        if (!(companion instanceof AICompanionEntity ace)) return;
+        ServerLevel level = (ServerLevel) companion.level();
+        BlockState bs = level.getBlockState(pos);
+
+        // Don't bother for instant-mine blocks
+        float hardness = bs.getDestroySpeed(level, pos);
+        if (hardness <= 0) return;
+
+        // If current tool is already correct, skip
+        ItemStack held = companion.getMainHandItem();
+        if (isCorrectToolForBlock(held, bs) && getToolSpeed(held) >= 4.0F) return;
+
+        // Search inventory for the best tool
+        int bestSlot = -1;
+        float bestSpeed = getToolSpeed(held);
+
+        for (int i = 0; i < ace.getInventory().getContainerSize(); i++) {
+            ItemStack stack = ace.getInventory().getItem(i);
+            if (stack.isEmpty()) continue;
+            String itemId = stack.getItem().builtInRegistryHolder()
+                    .key().identifier().getPath();
+            // Only consider tools (pickaxe, axe, shovel)
+            if (itemId.contains("pickaxe") || itemId.contains("axe") ||
+                itemId.contains("shovel")) {
+                if (isCorrectToolForBlock(stack, bs)) {
+                    float speed = getToolSpeed(stack);
+                    if (speed > bestSpeed) {
+                        bestSpeed = speed;
+                        bestSlot = i;
+                    }
+                }
+            }
+        }
+
+        if (bestSlot >= 0) {
+            ItemStack tool = ace.getInventory().getItem(bestSlot);
+            ItemStack oldHand = companion.getMainHandItem().copy();
+            companion.setItemInHand(InteractionHand.MAIN_HAND, tool.copy());
+            ace.getInventory().setItem(bestSlot, ItemStack.EMPTY);
+            // Put old hand item back in the slot we just emptied
+            if (!oldHand.isEmpty()) {
+                ace.getInventory().setItem(bestSlot, oldHand);
+            }
+            String toolName = companion.getMainHandItem().getItem()
+                    .builtInRegistryHolder().key().identifier().getPath();
+            announce("装备了 " + toolName);
         }
     }
 
@@ -525,19 +583,18 @@ public class ActionExecutor {
     }
 
     private void executeEat() {
-        // NOTE: Mob does not have a FoodData; full hunger system arrives in Phase 5.
-        // For now, this action is a placeholder that just plays the eating animation.
-        ItemStack stack = companion.getMainHandItem();
-        if (stack.isEmpty()) {
-            announce("手里没有食物");
+        AICompanionEntity ace = (AICompanionEntity) companion;
+        if (ace.getHunger() >= ace.getMaxHunger()) {
+            announce("我不饿，不需要吃东西");
+            completeAction();
+            return;
+        }
+        // Try to find food in inventory
+        if (ace.tryEat()) {
+            companion.swing(InteractionHand.MAIN_HAND);
+            announce("吃了点东西，饱食度恢复到 " + ace.getHunger());
         } else {
-            FoodProperties food = stack.get(DataComponents.FOOD);
-            if (food == null) {
-                announce("这个不能吃");
-            } else {
-                companion.swing(InteractionHand.MAIN_HAND);
-                announce("吃了一口（饥饿系统尚未实装）");
-            }
+            announce("背包里没有食物可以吃");
         }
         completeAction();
     }
@@ -605,11 +662,31 @@ public class ActionExecutor {
             completeAction();
             return;
         }
-        // Simplified: place a cobblestone if the companion has one.
-        // A full implementation would look at the AI's inventory.
+        // Check if we have a block in hand, otherwise try inventory
         ItemStack held = companion.getMainHandItem();
         if (held.isEmpty() || !(held.getItem() instanceof net.minecraft.world.item.BlockItem)) {
-            announce("手里没有方块可以放置");
+            // Try to find a block item in inventory and equip it
+            if (companion instanceof AICompanionEntity ace) {
+                for (int i = 0; i < ace.getInventory().getContainerSize(); i++) {
+                    ItemStack stack = ace.getInventory().getItem(i);
+                    if (!stack.isEmpty() && stack.getItem() instanceof net.minecraft.world.item.BlockItem) {
+                        // Equip to main hand
+                        ItemStack oldHand = companion.getMainHandItem().copy();
+                        companion.setItemInHand(InteractionHand.MAIN_HAND, stack.copy());
+                        stack.setCount(0);
+                        ace.getInventory().setItem(i, ItemStack.EMPTY);
+                        // Put old hand item back in inventory
+                        if (!oldHand.isEmpty()) {
+                            addToInventory(oldHand);
+                        }
+                        held = companion.getMainHandItem();
+                        break;
+                    }
+                }
+            }
+        }
+        if (held.isEmpty() || !(held.getItem() instanceof net.minecraft.world.item.BlockItem)) {
+            announce("背包里没有方块可以放置");
             completeAction();
             return;
         }
@@ -623,6 +700,44 @@ public class ActionExecutor {
             announce("放置失败");
         }
         completeAction();
+    }
+
+    /**
+     * Try to add an ItemStack to the companion's inventory.
+     * Returns any items that didn't fit.
+     */
+    private ItemStack addToInventory(ItemStack stack) {
+        if (!(companion instanceof AICompanionEntity ace)) return stack;
+        var inv = ace.getInventory();
+        int remaining = stack.getCount();
+        // First try to stack with existing items
+        for (int i = 0; i < inv.getContainerSize() && remaining > 0; i++) {
+            ItemStack slot = inv.getItem(i);
+            if (!slot.isEmpty() && ItemStack.isSameItemSameComponents(slot, stack)) {
+                int maxAdd = Math.min(remaining, slot.getMaxStackSize() - slot.getCount());
+                if (maxAdd > 0) {
+                    slot.grow(maxAdd);
+                    inv.setItem(i, slot);
+                    remaining -= maxAdd;
+                }
+            }
+        }
+        // Then try empty slots
+        if (remaining > 0) {
+            for (int i = 0; i < inv.getContainerSize() && remaining > 0; i++) {
+                ItemStack slot = inv.getItem(i);
+                if (slot.isEmpty()) {
+                    ItemStack toAdd = stack.copy();
+                    toAdd.setCount(Math.min(remaining, stack.getMaxStackSize()));
+                    inv.setItem(i, toAdd);
+                    remaining -= toAdd.getCount();
+                }
+            }
+        }
+        if (remaining <= 0) return ItemStack.EMPTY;
+        ItemStack result = stack.copy();
+        result.setCount(remaining);
+        return result;
     }
 
     private void beginWait() {

@@ -1,10 +1,12 @@
 package com.guyu.aicompanion.state;
 
 import com.guyu.aicompanion.ai.ChatHistory;
+import com.guyu.aicompanion.entity.AICompanionEntity;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.ItemStack;
@@ -74,6 +76,13 @@ public class GameState {
             state.addProperty("heldItem", held.getItem().builtInRegistryHolder()
                     .key().identifier().getPath());
             state.addProperty("heldItemCount", held.getCount());
+        }
+
+        // Inventory
+        if (companion instanceof AICompanionEntity ace) {
+            state.add("inventory", scanInventory(ace.getInventory()));
+            state.addProperty("hunger", ace.getHunger());
+            state.addProperty("maxHunger", ace.getMaxHunger());
         }
 
         // Nearby blocks (summarized by type)
@@ -174,6 +183,24 @@ public class GameState {
                     }
                     arr.add(obj);
                 });
+        return arr;
+    }
+
+    /** Scan companion inventory and return a summary as JSON array. */
+    private static JsonArray scanInventory(SimpleContainer inventory) {
+        JsonArray arr = new JsonArray();
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            ItemStack stack = inventory.getItem(i);
+            if (!stack.isEmpty()) {
+                JsonObject obj = new JsonObject();
+                obj.addProperty("slot", i);
+                obj.addProperty("item", stack.getItem().builtInRegistryHolder()
+                        .key().identifier().getPath());
+                obj.addProperty("count", stack.getCount());
+                obj.addProperty("maxCount", stack.getMaxStackSize());
+                arr.add(obj);
+            }
+        }
         return arr;
     }
 
