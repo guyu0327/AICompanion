@@ -21,13 +21,16 @@ import net.minecraft.server.level.ServerPlayer;
  * <p>
  * Usage:
  * <pre>
- *   /aicompanion action &lt;player&gt; move   &lt;x&gt; &lt;y&gt; &lt;z&gt;
- *   /aicompanion action &lt;player&gt; mine   &lt;x&gt; &lt;y&gt; &lt;z&gt;
+ *   /aicompanion action &lt;player&gt; move       &lt;x&gt; &lt;y&gt; &lt;z&gt;
+ *   /aicompanion action &lt;player&gt; move-here              (走到命令执行者脚下)
+ *   /aicompanion action &lt;player&gt; mine       &lt;x&gt; &lt;y&gt; &lt;z&gt;
+ *   /aicompanion action &lt;player&gt; mine-below             (挖同伴脚下的方块)
  *   /aicompanion action &lt;player&gt; attack &lt;target-entity&gt;
  *   /aicompanion action &lt;player&gt; chat   &lt;message&gt;
  *   /aicompanion action &lt;player&gt; wait
  *   /aicompanion action &lt;player&gt; eat
  *   /aicompanion action &lt;player&gt; sleep
+ *   /aicompanion action &lt;player&gt; wake
  *   /aicompanion action &lt;player&gt; drop
  *   /aicompanion action &lt;player&gt; cancel
  *   /aicompanion action &lt;player&gt; status
@@ -45,10 +48,16 @@ public class ActionCommand {
                     .then(Commands.literal("move")
                         .then(Commands.argument("pos", BlockPosArgument.blockPos())
                             .executes(ActionCommand::execMove)))
+                    // move-here: 让同伴走到命令执行者脚下
+                    .then(Commands.literal("move-here")
+                        .executes(ActionCommand::execMoveHere))
                     // ── mine ───────────────────────────────────────────────
                     .then(Commands.literal("mine")
                         .then(Commands.argument("pos", BlockPosArgument.blockPos())
                             .executes(ActionCommand::execMine)))
+                    // mine-below: 挖同伴脚下的方块（以同伴位置为基准）
+                    .then(Commands.literal("mine-below")
+                        .executes(ActionCommand::execMineBelow))
                     // ── attack ─────────────────────────────────────────────
                     .then(Commands.literal("attack")
                         .then(Commands.argument("target", EntityArgument.entity())
@@ -61,6 +70,7 @@ public class ActionCommand {
                     .then(Commands.literal("wait").executes(ctx -> execSimple(ctx, ActionType.WAIT)))
                     .then(Commands.literal("eat").executes(ctx -> execSimple(ctx, ActionType.EAT)))
                     .then(Commands.literal("sleep").executes(ctx -> execSimple(ctx, ActionType.SLEEP)))
+                    .then(Commands.literal("wake").executes(ctx -> execSimple(ctx, ActionType.WAKE_UP)))
                     .then(Commands.literal("drop").executes(ctx -> execSimple(ctx, ActionType.DROP_ITEM)))
                     // ── control ────────────────────────────────────────────
                     .then(Commands.literal("cancel").executes(ActionCommand::execCancel))
@@ -115,6 +125,28 @@ public class ActionCommand {
         companion.getActionExecutor().startAction(Action.mine(pos, "手动命令"));
         ctx.getSource().sendSuccess(() ->
                 Component.literal("AI Companion 开始挖掘 " + pos.toShortString()), true);
+        return 1;
+    }
+
+    /** mine-below: 挖同伴脚下（y-1）的方块，使用同伴自己的坐标 */
+    private static int execMineBelow(CommandContext<CommandSourceStack> ctx) {
+        AICompanionEntity companion = findCompanion(ctx);
+        if (companion == null) return sendError(ctx, "附近没有找到 AI Companion");
+        BlockPos pos = companion.blockPosition().below();
+        companion.getActionExecutor().startAction(Action.mine(pos, "手动命令"));
+        ctx.getSource().sendSuccess(() ->
+                Component.literal("AI Companion 开始挖掘脚下方块 " + pos.toShortString()), true);
+        return 1;
+    }
+
+    /** move-here: 让同伴走到命令执行者脚下 */
+    private static int execMoveHere(CommandContext<CommandSourceStack> ctx) {
+        AICompanionEntity companion = findCompanion(ctx);
+        if (companion == null) return sendError(ctx, "附近没有找到 AI Companion");
+        BlockPos pos = BlockPos.containing(ctx.getSource().getPosition());
+        companion.getActionExecutor().startAction(Action.move(pos, "手动命令"));
+        ctx.getSource().sendSuccess(() ->
+                Component.literal("AI Companion 正在过来 " + pos.toShortString()), true);
         return 1;
     }
 

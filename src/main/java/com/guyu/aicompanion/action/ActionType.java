@@ -12,6 +12,7 @@ public enum ActionType {
     CHAT("聊天"),
     WAIT("等待"),
     SLEEP("睡觉"),
+    WAKE_UP("醒来"),
     DROP_ITEM("丢弃物品"),
     PLACE_BLOCK("放置方块");
 

@@ -1,6 +1,7 @@
 package com.guyu.aicompanion.action;
 
 import com.guyu.aicompanion.AICompanion;
+import com.guyu.aicompanion.entity.AICompanionEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -8,12 +9,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
@@ -135,6 +133,7 @@ public class ActionExecutor {
             case CHAT        -> executeChat(action);
             case EAT         -> executeEat();
             case SLEEP       -> executeSleep();
+            case WAKE_UP     -> executeWakeUp();
             case DROP_ITEM   -> executeDropItem();
             case USE_ITEM    -> executeUseItem();
             case PLACE_BLOCK -> executePlace(action);
@@ -350,9 +349,26 @@ public class ActionExecutor {
     }
 
     private void executeSleep() {
-        // Enter sleeping pose (visual only; not tied to a bed block).
-        companion.setPose(Pose.SLEEPING);
+        AICompanionEntity ace = (AICompanionEntity) companion;
+        if (ace.isCompanionSleeping()) {
+            announce("已经在休息了 zzZ");
+            completeAction();
+            return;
+        }
+        ace.setCompanionSleeping();
         announce("休息一下 zzZ");
+        completeAction();
+    }
+
+    private void executeWakeUp() {
+        AICompanionEntity ace = (AICompanionEntity) companion;
+        if (ace.isCompanionSleeping()) {
+            ace.wakeCompanionUp();
+            announce("醒来了！");
+        } else {
+            ace.wakeCompanionUp();  // also resets pose
+            announce("已经是清醒状态");
+        }
         completeAction();
     }
 
@@ -436,7 +452,10 @@ public class ActionExecutor {
     private void cleanupCurrentAction() {
         if (state == State.MOVING) companion.getNavigation().stop();
         if (state == State.WAITING) waitRemaining = 0;
-        // Sleeping pose is set directly; it will be overridden naturally by Mob AI.
+        // Wake the companion if it was sleeping so the pose resets cleanly
+        if (companion instanceof AICompanionEntity ace && ace.isCompanionSleeping()) {
+            ace.wakeCompanionUp();
+        }
     }
 
     /** Find the nearest entity whose type-id contains {@code name} (case-insensitive). */

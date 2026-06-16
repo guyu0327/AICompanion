@@ -137,6 +137,7 @@ public class Action {
             case "chat"        -> ActionType.CHAT;
             case "wait"        -> ActionType.WAIT;
             case "sleep"       -> ActionType.SLEEP;
+            case "wake_up"     -> ActionType.WAKE_UP;
             case "drop_item"   -> ActionType.DROP_ITEM;
             case "place_block" -> ActionType.PLACE_BLOCK;
             default            -> ActionType.WAIT;
