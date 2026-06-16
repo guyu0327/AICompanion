@@ -11,6 +11,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,8 +23,11 @@ import java.util.Map;
  */
 public class GameState {
 
-    private static final int BLOCK_SCAN_RADIUS = 5;
-    private static final int ENTITY_SCAN_RANGE = 24;
+    private static final int BLOCK_SCAN_RADIUS = 8;
+    private static final int ENTITY_SCAN_RANGE = 32;
+    private static final int MAX_BLOCK_TYPES = 15;
+    private static final int NEAREST_PER_TYPE = 3;
+    private static final int MAX_ENTITIES = 15;
 
     /**
      * Collect all relevant game state for the given companion.
@@ -85,9 +90,14 @@ public class GameState {
         return state;
     }
 
-    /** Scan blocks in a radius and return counts grouped by block type. */
+    /**
+     * Scan blocks in a radius.  For each block type, return the total count
+     * and the positions of the nearest examples — so the AI knows exactly
+     * where to move/mine.
+     */
     private static JsonObject scanBlocks(ServerLevel level, BlockPos center) {
-        Map<String, Integer> blockCounts = new LinkedHashMap<>();
+        // Collect all non-air blocks with their positions
+        Map<String, List<BlockPos>> blocksByName = new LinkedHashMap<>();
         BlockPos.betweenClosedStream(
                 center.offset(-BLOCK_SCAN_RADIUS, -BLOCK_SCAN_RADIUS, -BLOCK_SCAN_RADIUS),
                 center.offset(BLOCK_SCAN_RADIUS, BLOCK_SCAN_RADIUS, BLOCK_SCAN_RADIUS)
@@ -96,17 +106,43 @@ public class GameState {
             if (bs.isAir()) return;
             String name = bs.getBlock().builtInRegistryHolder()
                     .key().identifier().getPath();
-            blockCounts.merge(name, 1, Integer::sum);
+            blocksByName.computeIfAbsent(name, k -> new ArrayList<>()).add(bp);
         });
+
+        // Build the output: for each type → count + nearest positions
         JsonObject obj = new JsonObject();
-        blockCounts.entrySet().stream()
-                .sorted((a, b) -> b.getValue() - a.getValue())
-                .limit(15)
-                .forEach(e -> obj.addProperty(e.getKey(), e.getValue()));
+        blocksByName.entrySet().stream()
+                .sorted((a, b) -> b.getValue().size() - a.getValue().size())
+                .limit(MAX_BLOCK_TYPES)
+                .forEach(entry -> {
+                    String name = entry.getKey();
+                    List<BlockPos> positions = entry.getValue();
+
+                    // Sort by distance to companion, take nearest N
+                    positions.sort(Comparator.comparingDouble(
+                            p -> center.distSqr(p)));
+
+                    JsonObject blockInfo = new JsonObject();
+                    blockInfo.addProperty("count", positions.size());
+
+                    JsonArray nearestArr = new JsonArray();
+                    positions.stream()
+                            .limit(NEAREST_PER_TYPE)
+                            .forEach(p -> {
+                                JsonArray posArr = new JsonArray();
+                                posArr.add(p.getX());
+                                posArr.add(p.getY());
+                                posArr.add(p.getZ());
+                                nearestArr.add(posArr);
+                            });
+                    blockInfo.add("nearest", nearestArr);
+
+                    obj.add(name, blockInfo);
+                });
         return obj;
     }
 
-    /** List nearby entities with type and distance. */
+    /** List nearby entities with type, position, distance and health. */
     private static JsonArray scanEntities(Mob companion, ServerLevel level) {
         AABB box = companion.getBoundingBox().inflate(ENTITY_SCAN_RANGE);
         List<Entity> entities = level.getEntities((Entity) null, box, e -> true);
@@ -115,12 +151,21 @@ public class GameState {
                 .filter(e -> e != companion)
                 .sorted((a, b) -> Double.compare(
                         companion.distanceToSqr(a), companion.distanceToSqr(b)))
-                .limit(10)
+                .limit(MAX_ENTITIES)
                 .forEach(e -> {
                     JsonObject obj = new JsonObject();
                     obj.addProperty("type", e.getType().builtInRegistryHolder()
                             .key().identifier().getPath());
                     obj.addProperty("name", e.getName().getString());
+
+                    // Position
+                    BlockPos ePos = e.blockPosition();
+                    JsonArray posArr = new JsonArray();
+                    posArr.add(ePos.getX());
+                    posArr.add(ePos.getY());
+                    posArr.add(ePos.getZ());
+                    obj.add("pos", posArr);
+
                     obj.addProperty("distance",
                             Math.round(companion.distanceTo(e) * 10.0) / 10.0);
                     if (e instanceof net.minecraft.world.entity.LivingEntity le) {

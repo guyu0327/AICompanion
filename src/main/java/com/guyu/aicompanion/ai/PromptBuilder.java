@@ -30,7 +30,7 @@ public class PromptBuilder {
         List<AIService.Message> messages = new ArrayList<>();
 
         // System prompt
-        String systemPrompt = buildSystemPrompt();
+        String systemPrompt = buildSystemPrompt(companionName);
         messages.add(new AIService.Message("system", systemPrompt));
 
         // Historical chat messages as context
@@ -48,13 +48,13 @@ public class PromptBuilder {
         return messages;
     }
 
-    private static String buildSystemPrompt() {
+    private static String buildSystemPrompt(String companionName) {
         String basePrompt = Config.SYSTEM_PROMPT.get();
 
         StringBuilder sb = new StringBuilder();
         sb.append(basePrompt).append("\n\n");
 
-        sb.append("你是Minecraft中的一个AI同伴。你的名字叫 ").append("同伴").append("。\n");
+        sb.append("你是Minecraft中的一个AI同伴。你的名字叫 ").append(companionName).append("。\n");
         sb.append("你需要观察周围的游戏世界状态，分析情况，并决定下一步行动。\n\n");
 
         sb.append("## 可用动作\n");
@@ -81,13 +81,21 @@ public class PromptBuilder {
         sb.append("  \"reason\": \"决策原因\"         // 总是需要提供，说明你为什么这么做\n");
         sb.append("}\n\n");
 
-        sb.append("## 注意事项\n");
-        sb.append("- 一次只返回一个动作\n");
-        sb.append("- 注意自身安全，血量低时优先自保\n");
-        sb.append("- 天黑时注意危险，考虑休息或寻找庇护\n");
-        sb.append("- 看到敌对生物要保持警惕\n");
-        sb.append("- 如果没什么特别的事，可以探索周围或等待\n");
-        sb.append("- 可以通过 chat 动作与玩家交流\n");
+        sb.append("## 游戏状态说明\n");
+        sb.append("你会收到当前游戏状态的JSON，其中包含:\n");
+        sb.append("- `nearbyBlocks`: 附近方块信息，每种方块包含 `count`(总数) 和 `nearest`(最近几个的坐标 [x,y,z])\n");
+        sb.append("- `nearbyEntities`: 附近实体列表，每个包含 `type`(类型名)、`pos`(坐标) 和 `distance`(距离)\n");
+        sb.append("**你可以直接使用这些坐标作为 move/mine/place_block 的 target**\n");
+        sb.append("**你可以直接使用 nearbyEntities 中的 type 作为 attack 的 targetName**\n\n");
+
+        sb.append("## 行动建议\n");
+        sb.append("- **主动行动**: 不要总是 chat 或 wait！你应该根据环境 actively 采取行动\n");
+        sb.append("- **采集资源**: 看到树木(oak_log等)就去 mine，看到矿石就去挖\n");
+        sb.append("- **探索移动**: 如果周围没有有价值的东西，move 到新的区域探索\n");
+        sb.append("- **战斗**: 看到敌对生物(如 zombie, skeleton, spider)就 attack 它们\n");
+        sb.append("- **安全**: 血量低时考虑 retreat（远离危险方向）或 eat\n");
+        sb.append("- **时间感知**: 天黑(18:00后)时注意怪物出没，考虑 sleep 或 build shelter\n");
+        sb.append("- **与玩家互动**: 可以通过 chat 与玩家交流，但不要每次都 chat\n");
 
         return sb.toString();
     }

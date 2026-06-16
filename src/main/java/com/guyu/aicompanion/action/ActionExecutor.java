@@ -41,7 +41,7 @@ public class ActionExecutor {
 
     private static final double MOVE_SPEED        = 1.0;
     private static final double ARRIVAL_THRESHOLD = 2.0;   // blocks — when MOVE counts as done
-    private static final int    MINE_STONE_TICKS  = 30;    // ~1.5 s for stone; dirt/grass faster, obsidian slower
+    private static final double MINE_REACH        = 2.5;   // must be this close to start mining
     private static final double ATTACK_REACH      = 3.0;
     private static final float  ATTACK_DAMAGE     = 4.0F;
     private static final int    ATTACK_COOLDOWN   = 14;    // ticks between swings (~0.7 s)
@@ -204,8 +204,21 @@ public class ActionExecutor {
         mineTarget     = action.getTargetPos();
         mineProgress   = 0;
         mineTotalTicks = calculateMineTicks(mineTarget);
+
+        if (mineTotalTicks >= Integer.MAX_VALUE) {
+            announce("这个方块挖不动（基岩等）");
+            completeAction();
+            return;
+        }
+
         state = State.MINING;
-        announce("开始挖掘 " + mineTarget.toShortString());
+        ServerLevel level = (ServerLevel) companion.level();
+        BlockState bs = level.getBlockState(mineTarget);
+        String blockName = bs.getBlock().builtInRegistryHolder().key().identifier().getPath();
+        boolean correctTool = isCorrectToolForBlock(companion.getMainHandItem(), bs);
+        announce("开始挖掘 " + blockName + " " + mineTarget.toShortString()
+                + " (预计 " + (mineTotalTicks / 20) + " 秒"
+                + (correctTool ? "" : " — 没有合适的工具！") + ")");
     }
 
     private void tickMine() {
@@ -214,45 +227,223 @@ public class ActionExecutor {
 
         // Block disappeared (someone else broke it, or it was air)
         if (bs.isAir()) {
+            resetBlockCrack(level);
             announce("方块已经被挖掉了");
             completeAction();
             return;
         }
 
-        // Move closer if too far
+        // ── Step 1: Walk to the block ───────────────────────────────────────
         double dist = companion.position().distanceTo(
                 net.minecraft.world.phys.Vec3.atCenterOf(mineTarget));
-        if (dist > 5.0) {
+        if (dist > MINE_REACH) {
+            resetBlockCrack(level);
             companion.getNavigation().moveTo(
                     mineTarget.getX() + 0.5, mineTarget.getY(),
                     mineTarget.getZ() + 0.5, MOVE_SPEED);
             return;  // wait until closer
         }
 
+        // ── Step 2: In range — mine! ────────────────────────────────────────
         // Face the block
         companion.getLookControl().setLookAt(
                 mineTarget.getX() + 0.5,
                 mineTarget.getY() + 0.5,
                 mineTarget.getZ() + 0.5);
 
-        // Swing animation
+        // Arm swing animation (player-like)
         companion.swing(InteractionHand.MAIN_HAND);
+
+        // Play the block's hit sound (the "dig" sound per swing)
+        net.minecraft.world.level.block.SoundType soundType = bs.getSoundType();
+        level.playSound(null,
+                mineTarget.getX() + 0.5, mineTarget.getY() + 0.5, mineTarget.getZ() + 0.5,
+                soundType.getHitSound(),
+                net.minecraft.sounds.SoundSource.BLOCKS,
+                soundType.getVolume() * 0.5F,  // quieter during mining
+                soundType.getPitch());
+
         mineProgress++;
 
+        // Update crack animation: progress goes from 0 (no crack) to 9 (about to break)
+        int crackStage = (int) ((double) mineProgress / mineTotalTicks * 9);
+        crackStage = Math.max(0, Math.min(9, crackStage));
+        level.destroyBlockProgress(companion.getId(), mineTarget, crackStage);
+
         if (mineProgress >= mineTotalTicks) {
-            level.destroyBlock(mineTarget, true, companion, 32);
+            resetBlockCrack(level);
+
+            // Break the block — only drop items if we had the correct tool
+            // (matches vanilla behavior: stone mined by hand drops nothing)
+            boolean correctTool = isCorrectToolForBlock(companion.getMainHandItem(), bs);
+            boolean shouldDrop = correctTool || !requiresCorrectTool(bs);
+
+            if (shouldDrop) {
+                level.destroyBlock(mineTarget, true, companion, 32);
+            } else {
+                // Remove block without drops (like a player mining stone with bare hands)
+                level.destroyBlock(mineTarget, false, companion, 32);
+            }
+
+            // Play the block's break sound
+            level.playSound(null,
+                    mineTarget.getX() + 0.5, mineTarget.getY() + 0.5, mineTarget.getZ() + 0.5,
+                    soundType.getBreakSound(),
+                    net.minecraft.sounds.SoundSource.BLOCKS,
+                    soundType.getVolume(), soundType.getPitch());
+
             announce("挖完了！");
             completeAction();
         }
     }
 
-    /** Estimate mining time based on block hardness. */
+    /** Clear the block crack animation (set progress to -1). */
+    private void resetBlockCrack(ServerLevel level) {
+        if (mineTarget != null) {
+            level.destroyBlockProgress(companion.getId(), mineTarget, -1);
+        }
+    }
+
+    /**
+     * Calculate mining time in ticks — matches vanilla Minecraft formula.
+     * <p>
+     * Vanilla formula:
+     * <ul>
+     *   <li>With correct tool: damagePerTick = toolSpeed / hardness / 30</li>
+     *   <li>Without correct tool: damagePerTick = 1 / hardness / 100</li>
+     *   <li>Time = ceil(1 / damagePerTick)</li>
+     * </ul>
+     * Tool speeds: bare hands=1, wood/gold=2, stone=4, iron=6, diamond=8, netherite=9
+     */
     private int calculateMineTicks(BlockPos pos) {
         ServerLevel level = (ServerLevel) companion.level();
         BlockState bs = level.getBlockState(pos);
         float hardness = bs.getDestroySpeed(level, pos);
         if (hardness < 0) return Integer.MAX_VALUE;  // unbreakable (bedrock etc.)
-        return Math.max(5, (int) (hardness * 15));
+        if (hardness == 0) return 5;                  // instant-mine blocks (torch, flower, etc.)
+
+        boolean correctTool = isCorrectToolForBlock(companion.getMainHandItem(), bs);
+        float ticks;
+        if (correctTool) {
+            float toolSpeed = getToolSpeed(companion.getMainHandItem());
+            // Vanilla: time = hardness * 30 / toolSpeed
+            ticks = hardness * 30.0F / toolSpeed;
+        } else {
+            // Vanilla bare-hands on unharvestable block: time = hardness * 100
+            ticks = hardness * 100.0F;
+        }
+        return Math.max(5, (int) Math.ceil(ticks));
+    }
+
+    /**
+     * Get the mining speed of a tool item.
+     * Returns 1.0 for bare hands or non-tool items.
+     */
+    private float getToolSpeed(ItemStack held) {
+        if (held.isEmpty()) return 1.0F;
+        String itemId = held.getItem().builtInRegistryHolder()
+                .key().identifier().getPath();
+
+        // Match by tier name in the item ID
+        if (itemId.contains("netherite")) return 9.0F;
+        if (itemId.contains("diamond"))   return 8.0F;
+        if (itemId.contains("iron"))      return 6.0F;
+        if (itemId.contains("stone"))     return 4.0F;
+        if (itemId.contains("wooden") || itemId.contains("gold") || itemId.contains("golden"))
+            return 2.0F;
+
+        // It's a tool but we don't recognize the tier — assume basic
+        if (itemId.contains("pickaxe") || itemId.contains("axe") ||
+            itemId.contains("shovel") || itemId.contains("hoe"))
+            return 2.0F;
+
+        return 1.0F;
+    }
+
+    /**
+     * Check if a block requires the correct tool for drops.
+     * Most stone/ore blocks do; dirt/wood/etc. don't.
+     */
+    private boolean requiresCorrectTool(BlockState bs) {
+        String blockId = bs.getBlock().builtInRegistryHolder()
+                .key().identifier().getPath();
+        return blockId.contains("stone") || blockId.contains("ore") ||
+               blockId.contains("cobble") || blockId.contains("deepslate") ||
+               blockId.contains("netherrack") || blockId.contains("blackstone") ||
+               blockId.contains("basalt") || blockId.contains("iron_block") ||
+               blockId.contains("gold_block") || blockId.contains("diamond_block") ||
+               blockId.contains("netherite") || blockId.contains("copper_block") ||
+               blockId.contains("brick") || blockId.contains("furnace") ||
+               blockId.contains("dispenser") || blockId.contains("dropper") ||
+               blockId.contains("observer") || blockId.contains("hopper") ||
+               blockId.contains("anvil") || blockId.contains("enchanting") ||
+               blockId.contains("ender_chest") || blockId.contains("spawner");
+    }
+
+    /**
+     * Check if the held item is the "right" tool type for a block.
+     * Uses name-based heuristic: works for all vanilla blocks, reasonable for modded ones.
+     */
+    private boolean isCorrectToolForBlock(ItemStack held, BlockState bs) {
+        if (held.isEmpty()) return false;
+        String itemId = held.getItem().builtInRegistryHolder()
+                .key().identifier().getPath();
+        String blockId = bs.getBlock().builtInRegistryHolder()
+                .key().identifier().getPath();
+
+        boolean isPickaxe = itemId.contains("pickaxe");
+        boolean isAxe     = itemId.contains("axe") && !isPickaxe;
+        boolean isShovel  = itemId.contains("shovel");
+        boolean isSword   = itemId.contains("sword");
+        boolean isHoe     = itemId.contains("hoe");
+
+        // Stone / ores / metal → pickaxe
+        if (blockId.contains("stone") || blockId.contains("ore") ||
+            blockId.contains("cobble") || blockId.contains("deepslate") ||
+            blockId.contains("netherrack") || blockId.contains("blackstone") ||
+            blockId.contains("basalt") || blockId.contains("iron_block") ||
+            blockId.contains("gold_block") || blockId.contains("diamond_block") ||
+            blockId.contains("netherite") || blockId.contains("copper_block") ||
+            blockId.contains("brick") || blockId.contains("furnace") ||
+            blockId.contains("dispenser") || blockId.contains("dropper") ||
+            blockId.contains("observer") || blockId.contains("hopper") ||
+            blockId.contains("anvil") || blockId.contains("enchanting") ||
+            blockId.contains("ender_chest") || blockId.contains("spawner")) {
+            return isPickaxe;
+        }
+
+        // Wood / logs / planks → axe
+        if (blockId.contains("log") || blockId.contains("plank") ||
+            blockId.contains("wood") || blockId.contains("oak") ||
+            blockId.contains("birch") || blockId.contains("spruce") ||
+            blockId.contains("jungle") || blockId.contains("acacia") ||
+            blockId.contains("dark_oak") || blockId.contains("mangrove") ||
+            blockId.contains("cherry") || blockId.contains("bamboo") ||
+            blockId.contains("crafting_table") || blockId.contains("bookshelf") ||
+            blockId.contains("chest") || blockId.contains("note_block")) {
+            return isAxe;
+        }
+
+        // Dirt / sand / gravel / clay → shovel
+        if (blockId.contains("dirt") || blockId.contains("grass_block") ||
+            blockId.contains("sand") || blockId.contains("gravel") ||
+            blockId.contains("clay") || blockId.contains("soul_sand") ||
+            blockId.contains("mycelium") || blockId.contains("podzol") ||
+            blockId.contains("farmland") || blockId.contains("concrete_powder")) {
+            return isShovel;
+        }
+
+        // Leaves / web / plants → sword or anything works
+        if (blockId.contains("leaves") || blockId.contains("web") ||
+            blockId.contains("vine") || blockId.contains("crop") ||
+            blockId.contains("wheat") || blockId.contains("carrot") ||
+            blockId.contains("potato") || blockId.contains("melon") ||
+            blockId.contains("pumpkin")) {
+            return isSword || isAxe || isHoe;
+        }
+
+        // For anything else, any tool is fine
+        return isPickaxe || isAxe || isShovel || isSword || isHoe;
     }
 
     // ── ATTACK ──────────────────────────────────────────────────────────────
@@ -455,6 +646,10 @@ public class ActionExecutor {
     private void cleanupCurrentAction() {
         if (state == State.MOVING) companion.getNavigation().stop();
         if (state == State.WAITING) waitRemaining = 0;
+        // Clear block crack animation if we were mining
+        if (state == State.MINING && !companion.level().isClientSide()) {
+            resetBlockCrack((ServerLevel) companion.level());
+        }
         // Wake the companion if it was sleeping so the pose resets cleanly
         if (companion instanceof AICompanionEntity ace && ace.isCompanionSleeping()) {
             ace.wakeCompanionUp();
