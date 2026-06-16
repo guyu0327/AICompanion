@@ -211,6 +211,19 @@ public class AITickHandler {
         return chatHistory;
     }
 
+    /**
+     * Force an AI decision on the very next tick (bypass the cooldown).
+     * Called when a player sends a message directed at this companion.
+     */
+    public void tickNow() {
+        ticksSinceLastDecision = DECISION_INTERVAL_TICKS;  // will trigger on next tick()
+    }
+
+    /** Add a player message to the companion's chat history. */
+    public void addPlayerMessage(String playerName, String message) {
+        chatHistory.add(playerName, message);
+    }
+
     /** Reset state — e.g. when cancelling or switching modes. */
     public void reset() {
         awaitingResponse = false;

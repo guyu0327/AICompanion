@@ -88,6 +88,12 @@ public class PromptBuilder {
         sb.append("**你可以直接使用这些坐标作为 move/mine/place_block 的 target**\n");
         sb.append("**你可以直接使用 nearbyEntities 中的 type 作为 attack 的 targetName**\n\n");
 
+        sb.append("## 聊天互动\n");
+        sb.append("玩家可以随时在聊天框发消息。当消息包含 @AI 或你的名字时，你会立即收到并回应。\n");
+        sb.append("其他聊天消息你也能听到（作为背景信息）。\n");
+        sb.append("chatHistory 中会显示 [玩家名]: 消息 的格式。\n");
+        sb.append("**重要**: 当玩家主动跟你说话时，优先用 chat 回应，然后再执行其他动作。\n\n");
+
         sb.append("## 行动建议\n");
         sb.append("- **主动行动**: 不要总是 chat 或 wait！你应该根据环境 actively 采取行动\n");
         sb.append("- **采集资源**: 看到树木(oak_log等)就去 mine，看到矿石就去挖\n");

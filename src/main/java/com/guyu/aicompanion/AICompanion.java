@@ -6,6 +6,7 @@ import com.guyu.aicompanion.command.ActionCommand;
 import com.guyu.aicompanion.command.SpawnCommand;
 import com.guyu.aicompanion.entity.AICompanionEntity;
 import com.guyu.aicompanion.event.AICompanionEventHandler;
+import com.guyu.aicompanion.event.ChatHandler;
 import com.mojang.logging.LogUtils;
 
 import net.minecraft.core.registries.Registries;
@@ -111,6 +112,9 @@ public class AICompanion {
 
         // Register the event handler that makes hostile mobs target AI companions
         NeoForge.EVENT_BUS.register(new AICompanionEventHandler());
+
+        // Register the chat handler for player ↔ AI companion communication
+        NeoForge.EVENT_BUS.register(new ChatHandler());
 
         // Register the item to a creative tab
         modEventBus.addListener(this::addCreative);
