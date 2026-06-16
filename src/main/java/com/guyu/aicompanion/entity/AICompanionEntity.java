@@ -1,6 +1,7 @@
 package com.guyu.aicompanion.entity;
 
 import com.guyu.aicompanion.action.ActionExecutor;
+import com.guyu.aicompanion.ai.AITickHandler;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.Pose;
@@ -13,6 +14,7 @@ import net.minecraft.world.level.Level;
 public class AICompanionEntity extends Mob {
 
     private final ActionExecutor actionExecutor;
+    private final AITickHandler aiTickHandler;
 
     /**
      * Custom sleeping state.  We bypass vanilla's startSleeping/stopSleeping
@@ -24,7 +26,8 @@ public class AICompanionEntity extends Mob {
 
     public AICompanionEntity(EntityType<? extends Mob> type, Level level) {
         super(type, level);
-        this.actionExecutor = new ActionExecutor(this);
+        this.aiTickHandler = new AITickHandler(this);
+        this.actionExecutor = new ActionExecutor(this, aiTickHandler.getChatHistory());
     }
 
     @Override
@@ -37,6 +40,8 @@ public class AICompanionEntity extends Mob {
         super.tick();
         // Drive the action state machine on the server side.
         actionExecutor.tick();
+        // Drive the AI decision loop (calls AI API every few seconds).
+        aiTickHandler.tick();
 
         // Force the SLEEPING pose every tick while sleeping.
         // This bypasses vanilla's bed-existence check that would otherwise
@@ -68,5 +73,9 @@ public class AICompanionEntity extends Mob {
 
     public ActionExecutor getActionExecutor() {
         return actionExecutor;
+    }
+
+    public AITickHandler getAiTickHandler() {
+        return aiTickHandler;
     }
 }

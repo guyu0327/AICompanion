@@ -1,6 +1,7 @@
 package com.guyu.aicompanion.action;
 
 import com.guyu.aicompanion.AICompanion;
+import com.guyu.aicompanion.ai.ChatHistory;
 import com.guyu.aicompanion.entity.AICompanionEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
@@ -50,6 +51,7 @@ public class ActionExecutor {
     // ── Fields ──────────────────────────────────────────────────────────────
 
     private final net.minecraft.world.entity.Mob companion;
+    private final ChatHistory chatHistory;
 
     private State  state         = State.IDLE;
     private Action currentAction = null;
@@ -75,8 +77,9 @@ public class ActionExecutor {
 
     // ── Constructor ─────────────────────────────────────────────────────────
 
-    public ActionExecutor(net.minecraft.world.entity.Mob companion) {
+    public ActionExecutor(net.minecraft.world.entity.Mob companion, ChatHistory chatHistory) {
         this.companion = companion;
+        this.chatHistory = chatHistory;
     }
 
     // ── Public API ──────────────────────────────────────────────────────────
@@ -484,13 +487,18 @@ public class ActionExecutor {
         return best;
     }
 
-    /** Send a chat message to all players within 32 blocks. */
+    /** Send a chat message to all players within 32 blocks and record it in chat history. */
     private void broadcast(String message) {
         ServerLevel level = (ServerLevel) companion.level();
-        Component text = Component.literal("[" + companion.getName().getString() + "] " + message);
+        String senderName = companion.getName().getString();
+        Component text = Component.literal("[" + senderName + "] " + message);
         AABB area = companion.getBoundingBox().inflate(32);
         for (ServerPlayer player : level.getEntitiesOfClass(ServerPlayer.class, area)) {
             player.sendSystemMessage(text);
+        }
+        // Record in chat history so the AI brain can see what was said
+        if (chatHistory != null) {
+            chatHistory.add(senderName, message);
         }
     }
 
