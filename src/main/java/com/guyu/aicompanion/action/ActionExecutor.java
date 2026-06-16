@@ -20,35 +20,35 @@ import java.util.List;
 import java.util.function.Predicate;
 
 /**
- * Executes AI-decided actions inside the game world.
+ * 在游戏世界中执行 AI 决策的动作
  * <p>
- * Usage: call {@link #tick()} once per server tick from {@code AICompanionEntity.tick()}.
- * Call {@link #startAction(Action)} when the AI brain returns a new decision.
+ * 用法：在 {@code AICompanionEntity.tick()} 中每个服务器 tick 调用一次 {@link #tick()}。
+ * 当 AI 大脑返回新决策时调用 {@link #startAction(Action)}。
  */
 public class ActionExecutor {
 
-    // ── Execution state ─────────────────────────────────────────────────────
+    // ── 执行状态 ────────────────────────────────────────────────────────────
 
     public enum State {
-        IDLE,
-        MOVING,
-        MINING,
-        ATTACKING,
-        WAITING
+        IDLE,       // 空闲
+        MOVING,     // 移动中
+        MINING,     // 挖掘中
+        ATTACKING,  // 攻击中
+        WAITING     // 等待中
     }
 
-    // ── Tuning constants ────────────────────────────────────────────────────
+    // ── 调优常量 ────────────────────────────────────────────────────────────
 
     private static final double MOVE_SPEED        = 1.0;
-    private static final double ARRIVAL_THRESHOLD = 2.0;   // blocks — when MOVE counts as done
-    private static final double MINE_REACH        = 2.5;   // must be this close to start mining
+    private static final double ARRIVAL_THRESHOLD = 2.0;   // 方块 — 移动到此范围内视为到达
+    private static final double MINE_REACH        = 2.5;   // 必须在此范围内才能开始挖掘
     private static final double ATTACK_REACH      = 3.0;
     private static final float  ATTACK_DAMAGE     = 4.0F;
-    private static final int    ATTACK_COOLDOWN   = 14;    // ticks between swings (~0.7 s)
-    private static final int    DEFAULT_WAIT      = 40;    // ticks (~2 s)
+    private static final int    ATTACK_COOLDOWN   = 14;    // 两次攻击之间的 tick 数（约 0.7 秒）
+    private static final int    DEFAULT_WAIT      = 40;    // tick 数（约 2 秒）
     private static final int    ENTITY_SCAN_RANGE = 24;
 
-    // ── Fields ──────────────────────────────────────────────────────────────
+    // ── 字段 ────────────────────────────────────────────────────────────────
 
     private final net.minecraft.world.entity.Mob companion;
     private final ChatHistory chatHistory;
@@ -56,53 +56,53 @@ public class ActionExecutor {
     private State  state         = State.IDLE;
     private Action currentAction = null;
 
-    // MOVE
+    // 移动相关
     private BlockPos moveTarget;
 
-    // MINE
+    // 挖掘相关
     private BlockPos mineTarget;
     private int      mineProgress;
     private int      mineTotalTicks;
 
-    // ATTACK
+    // 攻击相关
     private Entity attackTarget;
     private int    attackCooldown;
 
-    // WAIT
+    // 等待相关
     private int waitRemaining;
 
-    // Latest chat messages (set externally by ChatHandler / AIService)
+    // 最近的聊天消息（由 ChatHandler / AIService 外部设置）
     public String lastPlayerMessage;
     public String lastChatMessage;
 
-    // ── Constructor ─────────────────────────────────────────────────────────
+    // ── 构造函数 ────────────────────────────────────────────────────────────
 
     public ActionExecutor(net.minecraft.world.entity.Mob companion, ChatHistory chatHistory) {
         this.companion = companion;
         this.chatHistory = chatHistory;
     }
 
-    // ── Public API ──────────────────────────────────────────────────────────
+    // ── 公开 API ────────────────────────────────────────────────────────────
 
     /**
-     * Begin executing a new action.  Cancels whatever was running before.
+     * 开始执行新动作。会取消之前正在运行的任何动作。
      */
     public void startAction(Action action) {
         if (action == null || action.getType() == null) return;
-        AICompanion.LOGGER.info("[AI] 开始执行: {}", action);
+        AICompanion.LOGGER.debug("[AI] 开始执行: {}", action);
         cleanupCurrentAction();
         currentAction = action;
         beginAction(action);
     }
 
-    /** Stop whatever is currently running and go IDLE. */
+    /** 停止当前运行的任何动作，回到 IDLE 状态 */
     public void cancel() {
         cleanupCurrentAction();
         currentAction = null;
         state = State.IDLE;
     }
 
-    /** True when no action is in progress. */
+    /** 当前没有动作在执行时返回 true */
     public boolean isIdle() {
         return state == State.IDLE;
     }
@@ -111,7 +111,7 @@ public class ActionExecutor {
     public Action getCurrentAction() { return currentAction; }
 
     /**
-     * Drive the state machine.  Call once per server tick.
+     * 驱动状态机。每个服务器 tick 调用一次。
      */
     public void tick() {
         if (companion.level().isClientSide()) return;
@@ -126,7 +126,7 @@ public class ActionExecutor {
         }
     }
 
-    // ── Begin actions ───────────────────────────────────────────────────────
+    // ── 开始执行动作 ────────────────────────────────────────────────────────
 
     private void beginAction(Action action) {
         switch (action.getType()) {
@@ -144,7 +144,7 @@ public class ActionExecutor {
         }
     }
 
-    // ── MOVE ────────────────────────────────────────────────────────────────
+    // ── 移动 ────────────────────────────────────────────────────────────────
 
     private void beginMove(Action action) {
         if (action.getTargetPos() == null) {
@@ -173,7 +173,7 @@ public class ActionExecutor {
     private void tickMove() {
         if (moveTarget == null) { completeAction(); return; }
 
-        // Path lost or stuck
+        // 路径丢失或卡住
         if (companion.getNavigation().isDone()) {
             double dist = companion.position().distanceTo(
                     net.minecraft.world.phys.Vec3.atCenterOf(moveTarget));
@@ -181,7 +181,7 @@ public class ActionExecutor {
                 announce("已到达 " + moveTarget.toShortString());
                 completeAction();
             } else {
-                // Try to re-path
+                // 尝试重新寻路
                 boolean repath = companion.getNavigation().moveTo(
                         moveTarget.getX() + 0.5, moveTarget.getY(),
                         moveTarget.getZ() + 0.5, MOVE_SPEED);
@@ -193,7 +193,7 @@ public class ActionExecutor {
         }
     }
 
-    // ── MINE ────────────────────────────────────────────────────────────────
+    // ── 挖掘 ────────────────────────────────────────────────────────────────
 
     private void beginMine(Action action) {
         if (action.getTargetPos() == null) {
@@ -203,7 +203,7 @@ public class ActionExecutor {
         }
         mineTarget     = action.getTargetPos();
 
-        // Auto-equip best tool from inventory before mining
+        // 挖掘前自动从背包装备最佳工具
         autoEquipToolForBlock(mineTarget);
 
         mineProgress   = 0;
@@ -229,7 +229,7 @@ public class ActionExecutor {
         ServerLevel level = (ServerLevel) companion.level();
         BlockState bs = level.getBlockState(mineTarget);
 
-        // Block disappeared (someone else broke it, or it was air)
+        // 方块消失了（被其他人挖掉，或者本来就是空气）
         if (bs.isAir()) {
             resetBlockCrack(level);
             announce("方块已经被挖掉了");
@@ -237,7 +237,7 @@ public class ActionExecutor {
             return;
         }
 
-        // ── Step 1: Walk to the block ───────────────────────────────────────
+        // ── 第一步：走到方块旁边 ──────────────────────────────────────────────
         double dist = companion.position().distanceTo(
                 net.minecraft.world.phys.Vec3.atCenterOf(mineTarget));
         if (dist > MINE_REACH) {
@@ -245,31 +245,31 @@ public class ActionExecutor {
             companion.getNavigation().moveTo(
                     mineTarget.getX() + 0.5, mineTarget.getY(),
                     mineTarget.getZ() + 0.5, MOVE_SPEED);
-            return;  // wait until closer
+            return;  // 等待靠近
         }
 
-        // ── Step 2: In range — mine! ────────────────────────────────────────
-        // Face the block
+        // ── 第二步：在范围内 — 开始挖掘！──────────────────────────────────
+        // 面向方块
         companion.getLookControl().setLookAt(
                 mineTarget.getX() + 0.5,
                 mineTarget.getY() + 0.5,
                 mineTarget.getZ() + 0.5);
 
-        // Arm swing animation (player-like)
+        // 手臂挥动动画（模拟玩家）
         companion.swing(InteractionHand.MAIN_HAND);
 
-        // Play the block's hit sound (the "dig" sound per swing)
+        // 播放方块的敲击音效（每次挥动的"挖掘"声）
         net.minecraft.world.level.block.SoundType soundType = bs.getSoundType();
         level.playSound(null,
                 mineTarget.getX() + 0.5, mineTarget.getY() + 0.5, mineTarget.getZ() + 0.5,
                 soundType.getHitSound(),
                 net.minecraft.sounds.SoundSource.BLOCKS,
-                soundType.getVolume() * 0.5F,  // quieter during mining
+                soundType.getVolume() * 0.5F,  // 挖掘时音量较小
                 soundType.getPitch());
 
         mineProgress++;
 
-        // Update crack animation: progress goes from 0 (no crack) to 9 (about to break)
+        // 更新裂纹动画：进度从 0（无裂纹）到 9（即将破碎）
         int crackStage = (int) ((double) mineProgress / mineTotalTicks * 9);
         crackStage = Math.max(0, Math.min(9, crackStage));
         level.destroyBlockProgress(companion.getId(), mineTarget, crackStage);
@@ -277,19 +277,19 @@ public class ActionExecutor {
         if (mineProgress >= mineTotalTicks) {
             resetBlockCrack(level);
 
-            // Break the block — only drop items if we had the correct tool
-            // (matches vanilla behavior: stone mined by hand drops nothing)
+            // 破坏方块 — 只有使用正确工具时才掉落物品
+            // （匹配原版行为：空手挖石头不掉落任何东西）
             boolean correctTool = isCorrectToolForBlock(companion.getMainHandItem(), bs);
             boolean shouldDrop = correctTool || !requiresCorrectTool(bs);
 
             if (shouldDrop) {
                 level.destroyBlock(mineTarget, true, companion, 32);
             } else {
-                // Remove block without drops (like a player mining stone with bare hands)
+                // 移除方块但不掉落物品（像玩家空手挖石头一样）
                 level.destroyBlock(mineTarget, false, companion, 32);
             }
 
-            // Play the block's break sound
+            // 播放方块破碎音效
             level.playSound(null,
                     mineTarget.getX() + 0.5, mineTarget.getY() + 0.5, mineTarget.getZ() + 0.5,
                     soundType.getBreakSound(),
@@ -301,7 +301,7 @@ public class ActionExecutor {
         }
     }
 
-    /** Clear the block crack animation (set progress to -1). */
+    /** 清除方块裂纹动画（将进度设为 -1） */
     private void resetBlockCrack(ServerLevel level) {
         if (mineTarget != null) {
             level.destroyBlockProgress(companion.getId(), mineTarget, -1);
@@ -309,23 +309,23 @@ public class ActionExecutor {
     }
 
     /**
-     * Auto-equip the best tool from inventory for mining a specific block.
-     * If current hand item is already good enough, does nothing.
+     * 自动从背包装备挖掘指定方块的最佳工具。
+     * 如果当前手持物品已经够用，则不做任何操作。
      */
     private void autoEquipToolForBlock(BlockPos pos) {
         if (!(companion instanceof AICompanionEntity ace)) return;
         ServerLevel level = (ServerLevel) companion.level();
         BlockState bs = level.getBlockState(pos);
 
-        // Don't bother for instant-mine blocks
+        // 瞬间可挖掘的方块无需换工具
         float hardness = bs.getDestroySpeed(level, pos);
         if (hardness <= 0) return;
 
-        // If current tool is already correct, skip
+        // 如果当前手持工具已经合适，跳过
         ItemStack held = companion.getMainHandItem();
         if (isCorrectToolForBlock(held, bs) && getToolSpeed(held) >= 4.0F) return;
 
-        // Search inventory for the best tool
+        // 在背包中搜索最佳工具
         int bestSlot = -1;
         float bestSpeed = getToolSpeed(held);
 
@@ -334,7 +334,7 @@ public class ActionExecutor {
             if (stack.isEmpty()) continue;
             String itemId = stack.getItem().builtInRegistryHolder()
                     .key().identifier().getPath();
-            // Only consider tools (pickaxe, axe, shovel)
+            // 只考虑工具类物品（镐、斧、铲）
             if (itemId.contains("pickaxe") || itemId.contains("axe") ||
                 itemId.contains("shovel")) {
                 if (isCorrectToolForBlock(stack, bs)) {
@@ -352,7 +352,7 @@ public class ActionExecutor {
             ItemStack oldHand = companion.getMainHandItem().copy();
             companion.setItemInHand(InteractionHand.MAIN_HAND, tool.copy());
             ace.getInventory().setItem(bestSlot, ItemStack.EMPTY);
-            // Put old hand item back in the slot we just emptied
+            // 将原来手中的物品放回刚空出的格子
             if (!oldHand.isEmpty()) {
                 ace.getInventory().setItem(bestSlot, oldHand);
             }
@@ -363,46 +363,46 @@ public class ActionExecutor {
     }
 
     /**
-     * Calculate mining time in ticks — matches vanilla Minecraft formula.
+     * 计算挖掘所需 tick 数 — 匹配原版 Minecraft 公式。
      * <p>
-     * Vanilla formula:
+     * 原版公式：
      * <ul>
-     *   <li>With correct tool: damagePerTick = toolSpeed / hardness / 30</li>
-     *   <li>Without correct tool: damagePerTick = 1 / hardness / 100</li>
-     *   <li>Time = ceil(1 / damagePerTick)</li>
+     *   <li>使用正确工具：damagePerTick = toolSpeed / hardness / 30</li>
+     *   <li>不使用正确工具：damagePerTick = 1 / hardness / 100</li>
+     *   <li>所需时间 = ceil(1 / damagePerTick)</li>
      * </ul>
-     * Tool speeds: bare hands=1, wood/gold=2, stone=4, iron=6, diamond=8, netherite=9
+     * 工具速度：空手=1，木/金=2，石=4，铁=6，钻石=8，下界合金=9
      */
     private int calculateMineTicks(BlockPos pos) {
         ServerLevel level = (ServerLevel) companion.level();
         BlockState bs = level.getBlockState(pos);
         float hardness = bs.getDestroySpeed(level, pos);
-        if (hardness < 0) return Integer.MAX_VALUE;  // unbreakable (bedrock etc.)
-        if (hardness == 0) return 5;                  // instant-mine blocks (torch, flower, etc.)
+        if (hardness < 0) return Integer.MAX_VALUE;  // 不可破坏（基岩等）
+        if (hardness == 0) return 5;                  // 瞬间可挖掘的方块（火把、花等）
 
         boolean correctTool = isCorrectToolForBlock(companion.getMainHandItem(), bs);
         float ticks;
         if (correctTool) {
             float toolSpeed = getToolSpeed(companion.getMainHandItem());
-            // Vanilla: time = hardness * 30 / toolSpeed
+            // 原版公式：时间 = hardness * 30 / toolSpeed
             ticks = hardness * 30.0F / toolSpeed;
         } else {
-            // Vanilla bare-hands on unharvestable block: time = hardness * 100
+            // 原版空手挖掘不可收获方块：时间 = hardness * 100
             ticks = hardness * 100.0F;
         }
         return Math.max(5, (int) Math.ceil(ticks));
     }
 
     /**
-     * Get the mining speed of a tool item.
-     * Returns 1.0 for bare hands or non-tool items.
+     * 获取工具物品的挖掘速度。
+     * 空手或非工具物品返回 1.0。
      */
     private float getToolSpeed(ItemStack held) {
         if (held.isEmpty()) return 1.0F;
         String itemId = held.getItem().builtInRegistryHolder()
                 .key().identifier().getPath();
 
-        // Match by tier name in the item ID
+        // 根据物品 ID 中的等级名称匹配
         if (itemId.contains("netherite")) return 9.0F;
         if (itemId.contains("diamond"))   return 8.0F;
         if (itemId.contains("iron"))      return 6.0F;
@@ -410,7 +410,7 @@ public class ActionExecutor {
         if (itemId.contains("wooden") || itemId.contains("gold") || itemId.contains("golden"))
             return 2.0F;
 
-        // It's a tool but we don't recognize the tier — assume basic
+        // 是工具但无法识别等级 — 按基础工具处理
         if (itemId.contains("pickaxe") || itemId.contains("axe") ||
             itemId.contains("shovel") || itemId.contains("hoe"))
             return 2.0F;
@@ -419,8 +419,8 @@ public class ActionExecutor {
     }
 
     /**
-     * Check if a block requires the correct tool for drops.
-     * Most stone/ore blocks do; dirt/wood/etc. don't.
+     * 检查方块是否需要正确工具才能掉落物品。
+     * 大部分石头/矿石方块需要；泥土/木头等不需要。
      */
     private boolean requiresCorrectTool(BlockState bs) {
         String blockId = bs.getBlock().builtInRegistryHolder()
@@ -439,8 +439,8 @@ public class ActionExecutor {
     }
 
     /**
-     * Check if the held item is the "right" tool type for a block.
-     * Uses name-based heuristic: works for all vanilla blocks, reasonable for modded ones.
+     * 检查手持物品是否是对应方块的"正确"工具类型。
+     * 使用基于名称的启发式判断：对所有原版方块有效，对 mod 方块也基本合理。
      */
     private boolean isCorrectToolForBlock(ItemStack held, BlockState bs) {
         if (held.isEmpty()) return false;
@@ -455,7 +455,7 @@ public class ActionExecutor {
         boolean isSword   = itemId.contains("sword");
         boolean isHoe     = itemId.contains("hoe");
 
-        // Stone / ores / metal → pickaxe
+        // 石头 / 矿石 / 金属 → 镐
         if (blockId.contains("stone") || blockId.contains("ore") ||
             blockId.contains("cobble") || blockId.contains("deepslate") ||
             blockId.contains("netherrack") || blockId.contains("blackstone") ||
@@ -470,7 +470,7 @@ public class ActionExecutor {
             return isPickaxe;
         }
 
-        // Wood / logs / planks → axe
+        // 木头 / 原木 / 木板 → 斧头
         if (blockId.contains("log") || blockId.contains("plank") ||
             blockId.contains("wood") || blockId.contains("oak") ||
             blockId.contains("birch") || blockId.contains("spruce") ||
@@ -482,7 +482,7 @@ public class ActionExecutor {
             return isAxe;
         }
 
-        // Dirt / sand / gravel / clay → shovel
+        // 泥土 / 沙子 / 沙砾 / 粘土 → 铲子
         if (blockId.contains("dirt") || blockId.contains("grass_block") ||
             blockId.contains("sand") || blockId.contains("gravel") ||
             blockId.contains("clay") || blockId.contains("soul_sand") ||
@@ -491,7 +491,7 @@ public class ActionExecutor {
             return isShovel;
         }
 
-        // Leaves / web / plants → sword or anything works
+        // 树叶 / 蜘蛛网 / 植物 → 剑或任何工具都可以
         if (blockId.contains("leaves") || blockId.contains("web") ||
             blockId.contains("vine") || blockId.contains("crop") ||
             blockId.contains("wheat") || blockId.contains("carrot") ||
@@ -500,11 +500,11 @@ public class ActionExecutor {
             return isSword || isAxe || isHoe;
         }
 
-        // For anything else, any tool is fine
+        // 其他情况，任何工具都可以
         return isPickaxe || isAxe || isShovel || isSword || isHoe;
     }
 
-    // ── ATTACK ──────────────────────────────────────────────────────────────
+    // ── 攻击 ────────────────────────────────────────────────────────────────
 
     private void beginAttack(Action action) {
         String targetName = action.getTargetEntityName();
@@ -534,22 +534,22 @@ public class ActionExecutor {
         ServerLevel level = (ServerLevel) companion.level();
         double dist = companion.distanceTo(attackTarget);
 
-        // Chase
+        // 追击
         if (dist > ATTACK_REACH) {
             companion.getNavigation().moveTo(attackTarget, MOVE_SPEED);
             return;
         }
 
-        // Face the target
+        // 面向目标
         companion.getLookControl().setLookAt(attackTarget, 30F, 30F);
 
-        // Cooldown between swings
+        // 两次攻击之间的冷却
         if (attackCooldown > 0) {
             attackCooldown--;
             return;
         }
 
-        // Strike!
+        // 攻击！
         boolean hit = attackTarget.hurtServer(
                 level,
                 level.damageSources().mobAttack(companion),
@@ -572,7 +572,7 @@ public class ActionExecutor {
         }
     }
 
-    // ── Instant actions ─────────────────────────────────────────────────────
+    // ── 即时动作 ────────────────────────────────────────────────────────────
 
     private void executeChat(Action action) {
         String msg = action.getMessage();
@@ -589,7 +589,7 @@ public class ActionExecutor {
             completeAction();
             return;
         }
-        // Try to find food in inventory
+        // 尝试从背包中找食物
         if (ace.tryEat()) {
             companion.swing(InteractionHand.MAIN_HAND);
             announce("吃了点东西，饱食度恢复到 " + ace.getHunger());
@@ -617,7 +617,7 @@ public class ActionExecutor {
             ace.wakeCompanionUp();
             announce("醒来了！");
         } else {
-            ace.wakeCompanionUp();  // also resets pose
+            ace.wakeCompanionUp();  // 同时重置姿态
             announce("已经是清醒状态");
         }
         completeAction();
@@ -637,8 +637,7 @@ public class ActionExecutor {
     }
 
     private void executeUseItem() {
-        // Placeholder: just swing the arm.  Real item-use logic depends on
-        // the item type and is deferred to Phase 5.
+        // 占位实现：只挥动胳膊。真正的物品使用逻辑取决于物品类型
         ItemStack stack = companion.getMainHandItem();
         if (stack.isEmpty()) {
             announce("手里没有物品");
@@ -662,20 +661,20 @@ public class ActionExecutor {
             completeAction();
             return;
         }
-        // Check if we have a block in hand, otherwise try inventory
+        // 检查手中是否有方块，否则尝试从背包中找
         ItemStack held = companion.getMainHandItem();
         if (held.isEmpty() || !(held.getItem() instanceof net.minecraft.world.item.BlockItem)) {
-            // Try to find a block item in inventory and equip it
+            // 尝试在背包中找到方块物品并装备
             if (companion instanceof AICompanionEntity ace) {
                 for (int i = 0; i < ace.getInventory().getContainerSize(); i++) {
                     ItemStack stack = ace.getInventory().getItem(i);
                     if (!stack.isEmpty() && stack.getItem() instanceof net.minecraft.world.item.BlockItem) {
-                        // Equip to main hand
+                        // 装备到主手
                         ItemStack oldHand = companion.getMainHandItem().copy();
                         companion.setItemInHand(InteractionHand.MAIN_HAND, stack.copy());
                         stack.setCount(0);
                         ace.getInventory().setItem(i, ItemStack.EMPTY);
-                        // Put old hand item back in inventory
+                        // 将原来的手持物品放回背包
                         if (!oldHand.isEmpty()) {
                             addToInventory(oldHand);
                         }
@@ -703,14 +702,14 @@ public class ActionExecutor {
     }
 
     /**
-     * Try to add an ItemStack to the companion's inventory.
-     * Returns any items that didn't fit.
+     * 尝试将 ItemStack 添加到同伴的背包中。
+     * 返回未能放入的物品。
      */
     private ItemStack addToInventory(ItemStack stack) {
         if (!(companion instanceof AICompanionEntity ace)) return stack;
         var inv = ace.getInventory();
         int remaining = stack.getCount();
-        // First try to stack with existing items
+        // 先尝试与已有物品堆叠
         for (int i = 0; i < inv.getContainerSize() && remaining > 0; i++) {
             ItemStack slot = inv.getItem(i);
             if (!slot.isEmpty() && ItemStack.isSameItemSameComponents(slot, stack)) {
@@ -722,7 +721,7 @@ public class ActionExecutor {
                 }
             }
         }
-        // Then try empty slots
+        // 然后尝试空格子
         if (remaining > 0) {
             for (int i = 0; i < inv.getContainerSize() && remaining > 0; i++) {
                 ItemStack slot = inv.getItem(i);
@@ -749,29 +748,29 @@ public class ActionExecutor {
         if (--waitRemaining <= 0) completeAction();
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
+    // ── 辅助方法 ────────────────────────────────────────────────────────────
 
     private void completeAction() {
         Action done = currentAction;
         currentAction = null;
         state = State.IDLE;
-        AICompanion.LOGGER.info("[AI] 动作完成: {}", done);
+        AICompanion.LOGGER.debug("[AI] 动作完成: {}", done);
     }
 
     private void cleanupCurrentAction() {
         if (state == State.MOVING) companion.getNavigation().stop();
         if (state == State.WAITING) waitRemaining = 0;
-        // Clear block crack animation if we were mining
+        // 如果正在挖掘，清除方块裂纹动画
         if (state == State.MINING && !companion.level().isClientSide()) {
             resetBlockCrack((ServerLevel) companion.level());
         }
-        // Wake the companion if it was sleeping so the pose resets cleanly
+        // 如果同伴在睡觉，唤醒它以便姿态正确重置
         if (companion instanceof AICompanionEntity ace && ace.isCompanionSleeping()) {
             ace.wakeCompanionUp();
         }
     }
 
-    /** Find the nearest entity whose type-id contains {@code name} (case-insensitive). */
+    /** 查找类型 ID 包含 {@code name} 的最近实体（不区分大小写） */
     private Entity findEntityByName(String name) {
         ServerLevel level = (ServerLevel) companion.level();
         AABB box = companion.getBoundingBox().inflate(ENTITY_SCAN_RANGE);
@@ -797,7 +796,7 @@ public class ActionExecutor {
         return best;
     }
 
-    /** Send a chat message to all players within 32 blocks and record it in chat history. */
+    /** 向 32 格内的所有玩家发送聊天消息，并记录到聊天历史中 */
     private void broadcast(String message) {
         ServerLevel level = (ServerLevel) companion.level();
         String senderName = companion.getName().getString();
@@ -806,14 +805,14 @@ public class ActionExecutor {
         for (ServerPlayer player : level.getEntitiesOfClass(ServerPlayer.class, area)) {
             player.sendSystemMessage(text);
         }
-        // Record in chat history so the AI brain can see what was said
+        // 记录到聊天历史中，以便 AI 大脑能看到说过的内容
         if (chatHistory != null) {
             chatHistory.add(senderName, message);
         }
     }
 
     private void announce(String message) {
-        AICompanion.LOGGER.info("[AI] {}", message);
+        AICompanion.LOGGER.debug("[AI] {}", message);
         broadcast(message);
     }
 }

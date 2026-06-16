@@ -10,24 +10,23 @@ import net.neoforged.neoforge.event.ServerChatEvent;
 import java.util.List;
 
 /**
- * Handles player chat events for AI companion interaction.
+ * 处理玩家聊天事件以实现 AI 同伴交互。
  * <p>
- * Behaviour:
+ * 行为：
  * <ul>
- *   <li>All chat messages within 48 blocks are recorded in each companion's chat history
- *       (so the AI can "overhear" conversations for context).</li>
- *   <li>Messages that mention a companion (via {@code @AI}, {@code @同伴}, or the
- *       companion's actual name) trigger an <b>immediate</b> AI decision so the
- *       companion responds promptly.</li>
+ *   <li>48 格内的所有聊天消息都会记录到每个同伴的聊天历史中
+ *       （让 AI 可以"旁听"对话获取上下文）。</li>
+ *   <li>提及同伴的消息（通过 {@code @AI}、{@code @同伴} 或同伴的
+ *       实际名字）会触发<b>立即</b> AI 决策，以便同伴及时回应。</li>
  * </ul>
  */
 public class ChatHandler {
 
-    /** Range within which companions can "hear" chat messages. */
+    /** 同伴能"听到"聊天消息的范围 */
     private static final double HEARING_RANGE = 48.0;
 
     /**
-     * Called on the server thread whenever a player sends a chat message.
+     * 玩家发送聊天消息时在服务器线程上调用。
      */
     @SubscribeEvent
     public void onServerChat(ServerChatEvent event) {
@@ -37,14 +36,14 @@ public class ChatHandler {
         String message = event.getRawText();
         String playerName = event.getUsername();
 
-        // Find all companions within hearing range
+        // 找到听力范围内的所有同伴
         AABB area = player.getBoundingBox().inflate(HEARING_RANGE);
         List<AICompanionEntity> companions = player.level()
                 .getEntitiesOfClass(AICompanionEntity.class, area);
 
         if (companions.isEmpty()) return;
 
-        // Determine if the message is directed at any companion
+        // 判断消息是否针对某个同伴
         boolean isDirected = false;
         for (AICompanionEntity companion : companions) {
             String companionName = companion.getName().getString();
@@ -53,12 +52,12 @@ public class ChatHandler {
             }
         }
 
-        // Record in every nearby companion's chat history
+        // 记录到附近所有同伴的聊天历史中
         for (AICompanionEntity companion : companions) {
             companion.getAiTickHandler().addPlayerMessage(playerName, message);
 
-            // If the message is directed at this companion (or any companion),
-            // trigger an immediate AI decision
+            // 如果消息是针对此同伴（或任意同伴），
+            // 触发立即 AI 决策
             if (isDirected) {
                 AICompanion.LOGGER.info("[Chat] {} 对 AI 说: {}", playerName, message);
                 companion.getAiTickHandler().tickNow();
@@ -67,19 +66,19 @@ public class ChatHandler {
     }
 
     /**
-     * Check if a chat message is mentioning a companion.
-     * Matches {@code @AI}, {@code @同伴}, or the companion's name (case-insensitive).
+     * 检查聊天消息是否提及同伴。
+     * 匹配 {@code @AI}、{@code @同伴} 或同伴的名字（不区分大小写）。
      */
     private boolean isMentioning(String message, String companionName) {
         String lower = message.toLowerCase();
 
-        // Explicit @AI or @同伴 prefix
+        // 显式的 @AI 或 @同伴 前缀
         if (lower.startsWith("@ai") || lower.contains("@ai ") ||
             lower.startsWith("@ai同伴") || lower.contains("@同伴")) {
             return true;
         }
 
-        // Companion's actual name (case-insensitive)
+        // 同伴的实际名字（不区分大小写）
         if (companionName != null && !companionName.isEmpty()) {
             String nameLower = companionName.toLowerCase();
             if (lower.contains(nameLower)) {

@@ -17,9 +17,9 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
- * Debug commands for manually triggering actions on AI companions.
+ * 用于手动触发 AI 同伴动作的调试命令。
  * <p>
- * Usage:
+ * 用法：
  * <pre>
  *   /aicompanion action &lt;player&gt; move       &lt;x&gt; &lt;y&gt; &lt;z&gt;
  *   /aicompanion action &lt;player&gt; move-here              (走到命令执行者脚下)
@@ -35,7 +35,7 @@ import net.minecraft.server.level.ServerPlayer;
  *   /aicompanion action &lt;player&gt; cancel
  *   /aicompanion action &lt;player&gt; status
  * </pre>
- * The {@code <player>} selector picks the nearest AI companion to the executing player.
+ * {@code <player>} 选择器会找到距离执行命令玩家最近的 AI 同伴。
  */
 public class ActionCommand {
 
@@ -66,23 +66,23 @@ public class ActionCommand {
                     .then(Commands.literal("chat")
                         .then(Commands.argument("message", net.minecraft.commands.arguments.MessageArgument.message())
                             .executes(ActionCommand::execChat)))
-                    // ── simple actions ─────────────────────────────────────
+                    // ── 简单动作 ───────────────────────────────────────────
                     .then(Commands.literal("wait").executes(ctx -> execSimple(ctx, ActionType.WAIT)))
                     .then(Commands.literal("eat").executes(ctx -> execSimple(ctx, ActionType.EAT)))
                     .then(Commands.literal("sleep").executes(ctx -> execSimple(ctx, ActionType.SLEEP)))
                     .then(Commands.literal("wake").executes(ctx -> execSimple(ctx, ActionType.WAKE_UP)))
                     .then(Commands.literal("drop").executes(ctx -> execSimple(ctx, ActionType.DROP_ITEM)))
-                    // ── control ────────────────────────────────────────────
+                    // ── 控制 ───────────────────────────────────────────────
                     .then(Commands.literal("cancel").executes(ActionCommand::execCancel))
                     .then(Commands.literal("status").executes(ActionCommand::execStatus))
                 )
         );
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
+    // ── 辅助方法 ───────────────────────────────────────────────────────────
 
     /**
-     * Find the closest AI companion to the command executor (within 16 blocks).
+     * 找到距离命令执行者最近的 AI 同伴（16 格范围内）。
      */
     private static AICompanionEntity findCompanion(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
@@ -106,7 +106,7 @@ public class ActionCommand {
         return 0;
     }
 
-    // ── Action executors ────────────────────────────────────────────────────
+    // ── 动作执行器 ──────────────────────────────────────────────────────────
 
     private static int execMove(CommandContext<CommandSourceStack> ctx) {
         AICompanionEntity companion = findCompanion(ctx);

@@ -16,10 +16,10 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Handles HTTP communication with an OpenAI-compatible Chat Completions API.
+ * 处理与 OpenAI 兼容的 Chat Completions API 的 HTTP 通信。
  * <p>
- * Uses Java's built-in {@link HttpClient} (available since Java 11, MC 26.1 ships Java 25).
- * All requests are asynchronous to avoid blocking the server tick thread.
+ * 使用 Java 内置的 {@link HttpClient}（Java 11 起可用，MC 26.1 搭载 Java 25）。
+ * 所有请求均为异步，避免阻塞服务器 tick 线程。
  */
 public class AIService {
 
@@ -28,20 +28,20 @@ public class AIService {
             .build();
     private static final Gson GSON = new Gson();
 
-    /** A single chat message in the OpenAI format. */
+    /** OpenAI 格式的单个聊天消息 */
     public record Message(String role, String content) {}
 
-    /** A single choice in the API response. */
+    /** API 响应中的单个 choice */
     public record Choice(int index, Message message, String finishReason) {}
 
-    /** Parsed API response. */
+    /** 解析后的 API 响应 */
     public record Response(String content, String finishReason) {}
 
     /**
-     * Send a chat completion request asynchronously.
+     * 异步发送 chat completion 请求。
      *
-     * @return CompletableFuture that completes with the AI's response text,
-     *         or completes exceptionally on error.
+     * @return CompletableFuture，成功时以 AI 的回复文本完成，
+     *         出错时以异常完成。
      */
     public static CompletableFuture<String> chatAsync(
             List<Message> messages,
@@ -63,7 +63,7 @@ public class AIService {
                         new IllegalStateException("API Key 未配置"));
             }
 
-            // Build request body
+            // 构建请求体
             JsonObject body = new JsonObject();
             body.addProperty("model", model);
             body.addProperty("temperature", temperature);
@@ -88,7 +88,7 @@ public class AIService {
                     .timeout(Duration.ofSeconds(timeout))
                     .build();
 
-            AICompanion.LOGGER.info("[AI] 发送请求: {}", url);
+            AICompanion.LOGGER.debug("[AI] 发送请求: {}", url);
             AICompanion.LOGGER.debug("[AI] 请求体: {}", body);
 
             return HTTP_CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString())
@@ -112,8 +112,8 @@ public class AIService {
     }
 
     /**
-     * Intelligently join the base URL and endpoint, avoiding duplicate path segments.
-     * Examples:
+     * 智能拼接 base URL 和 endpoint，避免重复路径段。
+     * 示例：
      * <ul>
      *   <li>{@code "https://api.openai.com"} + {@code "/v1/chat/completions"} → {@code "https://api.openai.com/v1/chat/completions"}</li>
      *   <li>{@code "https://api.openai.com/v1"} + {@code "/v1/chat/completions"} → {@code "https://api.openai.com/v1/chat/completions"}</li>
@@ -122,21 +122,21 @@ public class AIService {
      * </ul>
      */
     static String buildUrl(String apiUrl, String endpoint) {
-        String base = apiUrl.replaceAll("/+$", "");   // strip trailing slashes
+        String base = apiUrl.replaceAll("/+$", "");   // 去除末尾斜杠
         String path = endpoint;
 
-        // If base ends with a path segment that is also the start of endpoint,
-        // remove the duplicate.  e.g. base=".../v1" + endpoint="/v1/chat/..."
+        // 如果 base 末尾的路径段也是 endpoint 的开头，
+        // 去除重复。例如 base=".../v1" + endpoint="/v1/chat/..."
         if (!path.isEmpty() && path.startsWith("/")) {
             String[] baseParts = base.split("/");
             String lastBasePart = baseParts.length > 0 ? baseParts[baseParts.length - 1] : "";
-            // Check if endpoint starts with "/<lastPart>/"
+            // 检查 endpoint 是否以 "/<lastPart>/" 开头
             if (!lastBasePart.isEmpty() && path.startsWith("/" + lastBasePart + "/")) {
-                path = path.substring(lastBasePart.length() + 1);  // remove "/<lastPart>"
+                path = path.substring(lastBasePart.length() + 1);  // 去除 "/<lastPart>"
             }
         }
 
-        // Ensure exactly one slash between base and path
+        // 确保 base 和 path 之间恰好有一个斜杠
         if (base.endsWith("/") && path.startsWith("/")) {
             return base + path.substring(1);
         } else if (!base.endsWith("/") && !path.startsWith("/")) {
@@ -147,13 +147,13 @@ public class AIService {
     }
 
     /**
-     * Parse the API response JSON and extract the AI's reply text.
+     * 解析 API 响应 JSON 并提取 AI 的回复文本。
      * <p>
-     * Tries multiple extraction strategies to support different API providers:
+     * 尝试多种提取策略以支持不同的 API 提供商：
      * <ol>
-     *   <li>OpenAI standard: {@code choices[0].message.content}</li>
-     *   <li>Alternative fields: {@code result}, {@code output}, {@code response}, {@code text}</li>
-     *   <li>Streaming-style: {@code delta.content}</li>
+     *   <li>OpenAI 标准格式：{@code choices[0].message.content}</li>
+     *   <li>其他字段：{@code result}、{@code output}、{@code response}、{@code text}</li>
+     *   <li>流式风格：{@code delta.content}</li>
      * </ol>
      */
     private static String parseResponse(String json) {
@@ -161,7 +161,7 @@ public class AIService {
             JsonObject obj = GSON.fromJson(json, JsonObject.class);
             if (obj == null) throw new RuntimeException("Empty response");
 
-            // Check for API error
+            // 检查 API 错误
             if (obj.has("error")) {
                 JsonElement errorEl = obj.get("error");
                 String errMsg;
@@ -176,16 +176,16 @@ public class AIService {
                 throw new RuntimeException("API error: " + errMsg);
             }
 
-            // Strategy 1: OpenAI standard format — choices[0].message.content
+            // 策略 1：OpenAI 标准格式 — choices[0].message.content
             String content = extractFromChoices(obj);
             if (content != null) return content;
 
-            // Strategy 1.5: Anthropic Messages API — content is an array of blocks
+            // 策略 1.5：Anthropic Messages API — content 是一个 block 数组
             // e.g. [{"type":"thinking","thinking":"..."}, {"type":"text","text":"actual response"}]
             content = extractFromAnthropicContent(obj);
             if (content != null) return content;
 
-            // Strategy 2: Direct top-level fields used by some providers
+            // 策略 2：某些提供商使用的顶层字段
             for (String field : new String[]{
                     "result", "output", "response", "text",
                     "completion", "data", "message", "content"}) {
@@ -193,7 +193,7 @@ public class AIService {
                 if (content != null) return content;
             }
 
-            // Strategy 3: Nested in "data" array (Azure-style)
+            // 策略 3：嵌套在 "data" 数组中（Azure 风格）
             if (obj.has("data") && obj.get("data").isJsonArray()) {
                 JsonArray dataArr = obj.getAsJsonArray("data");
                 if (!dataArr.isEmpty() && dataArr.get(0).isJsonObject()) {
@@ -206,7 +206,7 @@ public class AIService {
                 }
             }
 
-            // Nothing worked — log the full response for debugging
+            // 所有策略都失败 — 记录完整响应以便调试
             AICompanion.LOGGER.error("[AI] 无法从响应中提取内容，原始响应: {}", json);
             throw new RuntimeException(
                     "无法解析 API 响应格式 (已尝试 choices/result/output/text 等字段). " +
@@ -218,7 +218,7 @@ public class AIService {
         }
     }
 
-    /** Try to extract content from OpenAI-style choices array. */
+    /** 尝试从 OpenAI 风格的 choices 数组中提取内容 */
     private static String extractFromChoices(JsonObject obj) {
         if (!obj.has("choices")) return null;
         JsonElement choicesEl = obj.get("choices");
@@ -230,7 +230,7 @@ public class AIService {
         if (!firstEl.isJsonObject()) return null;
         JsonObject firstChoice = firstEl.getAsJsonObject();
 
-        // choices[0].message.content
+        // choices[0].message.content（标准格式）
         if (firstChoice.has("message")) {
             JsonElement msgEl = firstChoice.get("message");
             if (msgEl.isJsonObject()) {
@@ -244,13 +244,13 @@ public class AIService {
                     }
                 }
             }
-            // choices[0].message as a plain string (some providers)
+            // choices[0].message 为纯字符串（某些提供商）
             if (msgEl.isJsonPrimitive()) {
                 return msgEl.getAsString();
             }
         }
 
-        // choices[0].delta.content (streaming-style)
+        // choices[0].delta.content（流式风格）
         if (firstChoice.has("delta")) {
             JsonElement deltaEl = firstChoice.get("delta");
             if (deltaEl.isJsonObject()) {
@@ -261,7 +261,7 @@ public class AIService {
             }
         }
 
-        // choices[0].text (legacy completions API)
+        // choices[0].text（旧版 completions API）
         if (firstChoice.has("text")) {
             return firstChoice.get("text").getAsString();
         }
@@ -270,17 +270,17 @@ public class AIService {
     }
 
     /**
-     * Extract content from Anthropic Messages API format.
-     * The response has a top-level "content" array of blocks:
+     * 从 Anthropic Messages API 格式中提取内容。
+     * 响应包含一个顶层 "content" block 数组：
      * <pre>
      * {
      *   "content": [
      *     {"type": "thinking", "thinking": "..."},
-     *     {"type": "text", "text": "actual response text"}
+     *     {"type": "text", "text": "实际响应文本"}
      *   ]
      * }
      * </pre>
-     * We look for the first block with type "text" and return its "text" field.
+     * 查找第一个 type 为 "text" 的 block 并返回其 "text" 字段。
      */
     private static String extractFromAnthropicContent(JsonObject obj) {
         if (!obj.has("content")) return null;
@@ -294,7 +294,7 @@ public class AIService {
             if (!blockEl.isJsonObject()) continue;
             JsonObject block = blockEl.getAsJsonObject();
 
-            // Only extract "text" type blocks; skip "thinking" blocks
+            // 只提取 "text" 类型的 block，跳过 "thinking" 类型
             String type = block.has("type") ? block.get("type").getAsString() : "";
             if ("text".equals(type) && block.has("text")) {
                 JsonElement textEl = block.get("text");
@@ -308,13 +308,13 @@ public class AIService {
         return sb.length() > 0 ? sb.toString() : null;
     }
 
-    /** Try to extract a string value from a top-level field. */
+    /** 尝试从顶层字段中提取字符串值 */
     private static String extractStringField(JsonObject obj, String field) {
         if (!obj.has(field)) return null;
         JsonElement el = obj.get(field);
         if (el.isJsonNull()) return null;
         if (el.isJsonPrimitive()) return el.getAsString();
-        // If it's an object, try to get "content" or "text" from it
+        // 如果是对象，尝试从中获取 "content" 或 "text"
         if (el.isJsonObject()) {
             JsonObject nested = el.getAsJsonObject();
             for (String inner : new String[]{"content", "text", "message"}) {

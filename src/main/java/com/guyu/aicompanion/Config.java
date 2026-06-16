@@ -5,69 +5,69 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public class Config {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
-    // -- API Settings --
+    // -- API 设置 --
     public static final ModConfigSpec.ConfigValue<String> API_URL;
     public static final ModConfigSpec.ConfigValue<String> API_KEY;
     public static final ModConfigSpec.ConfigValue<String> API_ENDPOINT;
     public static final ModConfigSpec.IntValue API_TIMEOUT;
 
-    // -- Model Settings --
+    // -- 模型设置 --
     public static final ModConfigSpec.ConfigValue<String> MODEL_NAME;
     public static final ModConfigSpec.DoubleValue TEMPERATURE;
     public static final ModConfigSpec.IntValue MAX_TOKENS;
 
-    // -- Behavior Settings --
+    // -- 行为设置 --
     public static final ModConfigSpec.ConfigValue<String> SYSTEM_PROMPT;
 
     public static final ModConfigSpec SPEC;
 
     static {
-        // -- API Settings --
-        BUILDER.comment("API connection settings")
+        // -- API 设置 --
+        BUILDER.comment("API 连接设置")
                .push("api");
 
         API_URL = BUILDER
-                .comment("The base URL of the AI API (e.g. https://api.openai.com)")
+                .comment("AI API 的基础 URL（例如 https://api.openai.com）")
                 .define("apiUrl", "https://api.openai.com");
 
         API_KEY = BUILDER
-                .comment("Your API key for authentication. Keep this secret!")
+                .comment("API 认证密钥，请妥善保管！")
                 .define("apiKey", "");
 
         API_ENDPOINT = BUILDER
-                .comment("The chat completions endpoint path appended to the API URL")
+                .comment("Chat completions 接口的路径，会追加到 API URL 后面")
                 .define("endpoint", "/v1/chat/completions");
 
         API_TIMEOUT = BUILDER
-                .comment("HTTP request timeout in seconds")
+                .comment("HTTP 请求超时时间（秒）")
                 .defineInRange("timeout", 30, 1, 300);
 
         BUILDER.pop();
 
-        // -- Model Settings --
-        BUILDER.comment("AI model settings")
+        // -- 模型设置 --
+        BUILDER.comment("AI 模型设置")
                .push("model");
 
         MODEL_NAME = BUILDER
-                .comment("The model identifier to use for chat completions")
+                .comment("用于 chat completions 的模型标识符")
                 .define("modelName", "gpt-3.5-turbo");
 
         TEMPERATURE = BUILDER
-                .comment("Sampling temperature. 0.0 = deterministic, 2.0 = most random")
+                .comment("采样温度。0.0 = 确定性输出，2.0 = 最随机")
                 .defineInRange("temperature", 0.7, 0.0, 2.0);
 
         MAX_TOKENS = BUILDER
-                .comment("Maximum number of tokens to generate in the response")
+                .comment("响应中生成的最大 token 数")
                 .defineInRange("maxTokens", 1024, 1, 128000);
 
         BUILDER.pop();
 
-        // -- Behavior Settings --
-        BUILDER.comment("AI behavior settings")
+        // -- 行为设置 --
+        BUILDER.comment("AI 行为设置")
                .push("behavior");
 
         SYSTEM_PROMPT = BUILDER
-                .comment("The system prompt that defines the AI companion personality and behavior")
+                .comment("定义 AI 同伴个性和行为的 system prompt")
                 .define("systemPrompt", "You are a helpful and friendly AI companion in Minecraft.");
 
         BUILDER.pop();

@@ -12,20 +12,20 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Main AI decision loop.  Called every tick from AICompanionEntity.tick().
+ * AI 决策主循环。从 AICompanionEntity.tick() 每 tick 调用。
  * <p>
- * Flow:
+ * 流程：
  * <ol>
- *   <li>When idle and cooldown expired → collect game state</li>
- *   <li>Build prompt and send async HTTP request to AI API</li>
- *   <li>On response (scheduled back to server thread): parse → execute action</li>
- *   <li>When action completes → reset cooldown, go back to step 1</li>
+ *   <li>空闲且冷却结束 → 收集游戏状态</li>
+ *   <li>构建提示词并异步发送 HTTP 请求到 AI API</li>
+ *   <li>收到响应（调度回服务器线程）：解析 → 执行动作</li>
+ *   <li>动作完成 → 重置冷却，回到第 1 步</li>
  * </ol>
  */
 public class AITickHandler {
 
-    /** Ticks between AI decisions when the companion is idle. */
-    private static final int DECISION_INTERVAL_TICKS = 60;  // ~3 seconds
+    /** 同伴空闲时两次 AI 决策之间的 tick 数 */
+    private static final int DECISION_INTERVAL_TICKS = 60;  // 约 3 秒
 
     private final net.minecraft.world.entity.Mob companion;
     private final ChatHistory chatHistory = new ChatHistory();
@@ -39,8 +39,8 @@ public class AITickHandler {
     }
 
     /**
-     * Called every server tick from AICompanionEntity.tick().
-     * Drives the AI decision state machine.
+     * 从 AICompanionEntity.tick() 每个服务器 tick 调用。
+     * 驱动 AI 决策状态机。
      */
     public void tick() {
         if (companion.level().isClientSide()) return;
@@ -48,65 +48,64 @@ public class AITickHandler {
         ActionExecutor exec = getExecutor();
         if (exec == null) return;
 
-        // If a response just arrived, handle it on the server thread
-        // (the CompletableFuture callback runs on an HTTP thread)
+        // 如果响应刚到达，在服务器线程上处理它
+        // （CompletableFuture 的回调在 HTTP 线程上运行）
         if (responseHandled.compareAndSet(true, false)) {
-            // Already handled in the callback — nothing extra to do here
+            // 已在回调中处理 — 这里无需额外操作
         }
 
-        // If we're still processing, wait
+        // 如果仍在处理中，等待
         if (awaitingResponse) return;
 
-        // If the companion is executing an action, wait for it to finish
+        // 如果同伴正在执行动作，等待完成
         if (!exec.isIdle()) {
             ticksSinceLastDecision = 0;
             return;
         }
 
-        // Countdown to next decision
+        // 倒计时到下次决策
         ticksSinceLastDecision++;
         if (ticksSinceLastDecision < DECISION_INTERVAL_TICKS) return;
 
-        // Time for a new AI decision
+        // 到时间做新的 AI 决策了
         ticksSinceLastDecision = 0;
         requestDecision(exec);
     }
 
     /**
-     * Collect game state, build prompt, send async request to the AI API.
-     * When the response arrives, parse it and schedule action execution
-     * on the main server thread.
+     * 收集游戏状态，构建提示词，异步发送请求到 AI API。
+     * 响应到达后解析并在主服务器线程上调度动作执行。
      */
     private void requestDecision(ActionExecutor exec) {
         awaitingResponse = true;
 
-        // 1. Collect game state
+        // 1. 收集游戏状态
         JsonObject gameState = GameState.collect(companion, chatHistory);
 
-        // 2. Build prompt messages
+        // 2. 构建提示词消息
         String name = companion.getName().getString();
         List<AIService.Message> messages =
                 PromptBuilder.buildMessages(name, gameState, chatHistory);
 
-        // 3. Read config
+        // 3. 读取配置
         String model = com.guyu.aicompanion.Config.MODEL_NAME.get();
         double temperature = com.guyu.aicompanion.Config.TEMPERATURE.get();
         int maxTokens = com.guyu.aicompanion.Config.MAX_TOKENS.get();
 
-        AICompanion.LOGGER.info("[AI] {} 正在思考...", name);
+        AICompanion.LOGGER.debug("[AI] {} 正在思考...", name);
 
-        // 4. Send async request
+        // 4. 发送异步请求
         CompletableFuture<String> future =
                 AIService.chatAsync(messages, model, temperature, maxTokens);
 
         ServerLevel level = (ServerLevel) companion.level();
 
         future.thenAccept(response -> {
-            AICompanion.LOGGER.info("[AI] 收到 {} 的回复 (HTTP线程), 长度: {}",
+            AICompanion.LOGGER.debug("[AI] 收到 {} 的回复 (HTTP线程), 长度: {}",
                     name, response != null ? response.length() : "null");
 
-            // Schedule back to the server thread — Minecraft world mutations
-            // must happen on the main thread
+            // 调度回服务器线程 — Minecraft 世界修改
+            // 必须在主线程上执行
             var server = level.getServer();
             if (server == null) {
                 AICompanion.LOGGER.error("[AI] MinecraftServer 为 null，无法执行动作！");
@@ -117,18 +116,18 @@ public class AITickHandler {
             server.execute(() -> {
                 try {
                     awaitingResponse = false;
-                    AICompanion.LOGGER.info("[AI] {} 回复: {}", name, response);
+                    AICompanion.LOGGER.debug("[AI] {} 回复: {}", name, response);
 
-                    // Record the AI's reply in chat history
+                    // 将 AI 的回复记录到聊天历史中
                     chatHistory.add(name, response);
 
-                    // Extract JSON from response (handles markdown wrapping etc.)
+                    // 从响应中提取 JSON（处理 markdown 代码块等）
                     String json = extractJson(response);
-                    AICompanion.LOGGER.info("[AI] 提取的JSON: {}", json);
+                    AICompanion.LOGGER.debug("[AI] 提取的JSON: {}", json);
 
-                    // Parse the response into an Action
+                    // 将响应解析为 Action
                     Action action = Action.fromJson(json);
-                    AICompanion.LOGGER.info("[AI] 解析的动作: {}", action);
+                    AICompanion.LOGGER.debug("[AI] 解析的动作: {}", action);
 
                     if (action != null && action.getType() != null) {
                         exec.startAction(action);
@@ -156,18 +155,18 @@ public class AITickHandler {
     }
 
     /**
-     * Extract JSON from the AI response.  The AI might wrap the JSON in
-     * markdown code blocks or add extra text — we try to find the JSON object.
+     * 从 AI 响应中提取 JSON。AI 可能将 JSON 包裹在
+     * markdown 代码块中或添加额外文字 — 我们尝试找到 JSON 对象。
      */
     private String extractJson(String response) {
         if (response == null) return "{}";
 
         String trimmed = response.trim();
 
-        // If it already starts with {, assume it's clean JSON
+        // 如果已经以 { 开头，假设是干净的 JSON
         if (trimmed.startsWith("{")) return trimmed;
 
-        // Try to extract from ```json ... ``` code block
+        // 尝试从 ```json ... ``` 代码块中提取
         int jsonStart = trimmed.indexOf("```json");
         if (jsonStart >= 0) {
             int contentStart = trimmed.indexOf('\n', jsonStart) + 1;
@@ -177,7 +176,7 @@ public class AITickHandler {
             }
         }
 
-        // Try to extract from ``` ... ``` code block
+        // 尝试从 ``` ... ``` 代码块中提取
         int codeStart = trimmed.indexOf("```");
         if (codeStart >= 0) {
             int contentStart = trimmed.indexOf('\n', codeStart) + 1;
@@ -188,14 +187,14 @@ public class AITickHandler {
             }
         }
 
-        // Try to find the first { and last }
+        // 尝试找到第一个 { 和最后一个 }
         int firstBrace = trimmed.indexOf('{');
         int lastBrace = trimmed.lastIndexOf('}');
         if (firstBrace >= 0 && lastBrace > firstBrace) {
             return trimmed.substring(firstBrace, lastBrace + 1);
         }
 
-        // Give up — return as-is; Action.fromJson will handle gracefully
+        // 放弃 — 原样返回；Action.fromJson 会妥善处理
         return trimmed;
     }
 
@@ -212,19 +211,19 @@ public class AITickHandler {
     }
 
     /**
-     * Force an AI decision on the very next tick (bypass the cooldown).
-     * Called when a player sends a message directed at this companion.
+     * 在下一个 tick 立即触发 AI 决策（绕过冷却）。
+     * 当玩家向此同伴发送消息时调用。
      */
     public void tickNow() {
         ticksSinceLastDecision = DECISION_INTERVAL_TICKS;  // will trigger on next tick()
     }
 
-    /** Add a player message to the companion's chat history. */
+    /** 将玩家消息添加到同伴的聊天历史中 */
     public void addPlayerMessage(String playerName, String message) {
         chatHistory.add(playerName, message);
     }
 
-    /** Reset state — e.g. when cancelling or switching modes. */
+    /** 重置状态 — 例如取消或切换模式时 */
     public void reset() {
         awaitingResponse = false;
         ticksSinceLastDecision = 0;

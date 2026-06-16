@@ -5,9 +5,9 @@ import java.util.LinkedList;
 import java.util.List;
 
 /**
- * Maintains a rolling chat history for an AI companion.
- * Used both to feed conversation context to the AI and to record
- * what the companion has said (via ActionExecutor broadcasts).
+ * 维护 AI 同伴的滚动聊天历史。
+ * 用于向 AI 提供对话上下文，以及记录同伴说过的话
+ * （通过 ActionExecutor 广播）。
  */
 public class ChatHistory {
 
@@ -17,7 +17,7 @@ public class ChatHistory {
 
     private final LinkedList<Entry> history = new LinkedList<>();
 
-    /** Add a message to the history. */
+    /** 将消息添加到历史记录中 */
     public void add(String sender, String message) {
         if (message == null || message.isBlank()) return;
         history.addLast(new Entry(sender, message.trim()));
@@ -26,7 +26,7 @@ public class ChatHistory {
         }
     }
 
-    /** Format history as a list of message objects for the API. */
+    /** 将历史记录格式化为 API 的消息对象列表 */
     public List<AIService.Message> toApiMessages() {
         List<AIService.Message> msgs = new ArrayList<>();
         for (Entry e : history) {
@@ -35,7 +35,7 @@ public class ChatHistory {
         return msgs;
     }
 
-    /** Format history as a human-readable string for the prompt. */
+    /** 将历史记录格式化为提示词用的可读字符串 */
     public String toFormattedString() {
         if (history.isEmpty()) return "（暂无对话记录）";
         StringBuilder sb = new StringBuilder();

@@ -1,7 +1,6 @@
 package com.guyu.aicompanion;
 
 import com.guyu.aicompanion.entity.AICompanionRenderer;
-import net.minecraft.client.Minecraft;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
@@ -13,23 +12,21 @@ import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.gui.ConfigurationScreen;
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 
-// This class will not load on dedicated servers. Accessing client side code from here is safe.
+// 此类不会在专用服务器上加载，从这里访问客户端代码是安全的
 @Mod(value = AICompanion.MODID, dist = Dist.CLIENT)
 @EventBusSubscriber(modid = AICompanion.MODID, value = Dist.CLIENT)
 public class AICompanionClient {
     public AICompanionClient(ModContainer container) {
-        // Register CLIENT config - each player has their own API key and settings
+        // 注册 CLIENT 配置 — 每个玩家有自己的 API key 和设置
         container.registerConfig(ModConfig.Type.CLIENT, Config.SPEC);
 
-        // Allows NeoForge to create a config screen for this mod's configs.
-        // The config screen is accessed by going to the Mods screen > clicking on your mod > clicking on config.
+        // 允许 NeoForge 为本 mod 的配置创建配置界面
+        // 配置界面路径：Mods 界面 > 点击本 mod > 点击 Config
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
     }
 
     @SubscribeEvent
     static void onClientSetup(FMLClientSetupEvent event) {
-        AICompanion.LOGGER.info("HELLO FROM CLIENT SETUP");
-        AICompanion.LOGGER.info("MINECRAFT NAME >> {}", Minecraft.getInstance().getUser().getName());
     }
 
     @SubscribeEvent

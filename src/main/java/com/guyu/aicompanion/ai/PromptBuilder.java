@@ -7,21 +7,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Builds the message list sent to the AI API.
+ * 构建发送给 AI API 的消息列表。
  * <p>
- * The system prompt tells the AI who it is, what actions are available,
- * and what JSON format to respond with. The user message contains the
- * current game state + chat history as context.
+ * system prompt 告诉 AI 它是谁、有哪些可用动作、
+ * 以及用什么 JSON 格式回复。user message 包含
+ * 当前游戏状态 + 聊天历史作为上下文。
  */
 public class PromptBuilder {
 
     /**
-     * Build the full message list for an API request.
+     * 为 API 请求构建完整的消息列表。
      *
-     * @param companionName  the companion's display name
-     * @param gameState      current game state as JSON
-     * @param chatHistory    recent chat messages
-     * @return list of messages in OpenAI chat format
+     * @param companionName  同伴的显示名称
+     * @param gameState      当前游戏状态的 JSON
+     * @param chatHistory    最近的聊天消息
+     * @return OpenAI 聊天格式的消息列表
      */
     public static List<AIService.Message> buildMessages(
             String companionName,
@@ -29,18 +29,18 @@ public class PromptBuilder {
             ChatHistory chatHistory) {
         List<AIService.Message> messages = new ArrayList<>();
 
-        // System prompt
+        // 系统提示词
         String systemPrompt = buildSystemPrompt(companionName);
         messages.add(new AIService.Message("system", systemPrompt));
 
-        // Historical chat messages as context
+        // 历史聊天消息作为上下文
         if (chatHistory != null && chatHistory.size() > 0) {
             for (AIService.Message histMsg : chatHistory.toApiMessages()) {
                 messages.add(histMsg);
             }
         }
 
-        // Current state as user message
+        // 当前状态作为 user message
         String userMsg = "当前游戏状态:\n" + gameState.toString();
         userMsg += "\n\n请根据以上状态，分析当前情况并决定下一步行动。以JSON格式返回你的决策。";
         messages.add(new AIService.Message("user", userMsg));

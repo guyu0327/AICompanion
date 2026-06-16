@@ -1,7 +1,7 @@
 package com.guyu.aicompanion.action;
 
 /**
- * All action types the AI companion can perform.
+ * AI 同伴可以执行的所有动作类型
  */
 public enum ActionType {
     MOVE("移动"),

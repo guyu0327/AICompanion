@@ -20,8 +20,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Collects the current game state around an AI companion and serializes it to JSON.
- * This JSON is sent to the AI as the "user message" so it can make informed decisions.
+ * 收集 AI 同伴周围当前的游戏状态并序列化为 JSON。
+ * 此 JSON 作为"user message"发送给 AI，以便做出有依据的决策。
  */
 public class GameState {
 
@@ -32,7 +32,7 @@ public class GameState {
     private static final int MAX_ENTITIES = 15;
 
     /**
-     * Collect all relevant game state for the given companion.
+     * 收集指定同伴的所有相关游戏状态。
      */
     public static JsonObject collect(Mob companion, ChatHistory chatHistory) {
         ServerLevel level = (ServerLevel) companion.level();
@@ -40,35 +40,35 @@ public class GameState {
 
         JsonObject state = new JsonObject();
 
-        // Position
+        // 位置
         state.addProperty("x", pos.getX());
         state.addProperty("y", pos.getY());
         state.addProperty("z", pos.getZ());
 
-        // Dimension
+        // 维度
         String dimId = level.dimension().identifier().getPath();
         state.addProperty("dimension", dimId);
 
-        // Biome
+        // 生物群系
         String biome = level.getBiome(pos).unwrapKey()
                 .map(k -> k.identifier().getPath())
                 .orElse("unknown");
         state.addProperty("biome", biome);
 
-        // Time of day
+        // 一天中的时间
         long dayTime = level.getOverworldClockTime() % 24000;
         state.addProperty("timeOfDay", dayTime);
         state.addProperty("timeOfDayStr", formatTime(dayTime));
 
-        // Weather
+        // 天气
         state.addProperty("raining", level.isRaining());
         state.addProperty("thundering", level.isThundering());
 
-        // Health
+        // 生命值
         state.addProperty("health", Math.round(companion.getHealth()));
         state.addProperty("maxHealth", Math.round(companion.getMaxHealth()));
 
-        // Held item
+        // 手持物品
         ItemStack held = companion.getMainHandItem();
         if (held.isEmpty()) {
             state.addProperty("heldItem", "empty");
@@ -78,20 +78,20 @@ public class GameState {
             state.addProperty("heldItemCount", held.getCount());
         }
 
-        // Inventory
+        // 背包
         if (companion instanceof AICompanionEntity ace) {
             state.add("inventory", scanInventory(ace.getInventory()));
             state.addProperty("hunger", ace.getHunger());
             state.addProperty("maxHunger", ace.getMaxHunger());
         }
 
-        // Nearby blocks (summarized by type)
+        // 附近方块（按类型汇总）
         state.add("nearbyBlocks", scanBlocks(level, pos));
 
-        // Nearby entities
+        // 附近实体
         state.add("nearbyEntities", scanEntities(companion, level));
 
-        // Chat history
+        // 聊天历史
         if (chatHistory != null) {
             state.addProperty("chatHistory", chatHistory.toFormattedString());
         }
@@ -100,12 +100,11 @@ public class GameState {
     }
 
     /**
-     * Scan blocks in a radius.  For each block type, return the total count
-     * and the positions of the nearest examples — so the AI knows exactly
-     * where to move/mine.
+     * 扫描半径内的方块。对每种方块类型，返回总数量和
+     * 最近几个的坐标 — 让 AI 确切知道去哪里移动/挖掘。
      */
     private static JsonObject scanBlocks(ServerLevel level, BlockPos center) {
-        // Collect all non-air blocks with their positions
+        // 收集所有非空气方块及其坐标
         Map<String, List<BlockPos>> blocksByName = new LinkedHashMap<>();
         BlockPos.betweenClosedStream(
                 center.offset(-BLOCK_SCAN_RADIUS, -BLOCK_SCAN_RADIUS, -BLOCK_SCAN_RADIUS),
@@ -118,7 +117,7 @@ public class GameState {
             blocksByName.computeIfAbsent(name, k -> new ArrayList<>()).add(bp);
         });
 
-        // Build the output: for each type → count + nearest positions
+        // 构建输出：每种类型 → 数量 + 最近的坐标
         JsonObject obj = new JsonObject();
         blocksByName.entrySet().stream()
                 .sorted((a, b) -> b.getValue().size() - a.getValue().size())
@@ -127,7 +126,7 @@ public class GameState {
                     String name = entry.getKey();
                     List<BlockPos> positions = entry.getValue();
 
-                    // Sort by distance to companion, take nearest N
+                    // 按到同伴的距离排序，取最近的 N 个
                     positions.sort(Comparator.comparingDouble(
                             p -> center.distSqr(p)));
 
@@ -151,7 +150,7 @@ public class GameState {
         return obj;
     }
 
-    /** List nearby entities with type, position, distance and health. */
+    /** 列出附近实体，包含类型、坐标、距离和生命值 */
     private static JsonArray scanEntities(Mob companion, ServerLevel level) {
         AABB box = companion.getBoundingBox().inflate(ENTITY_SCAN_RANGE);
         List<Entity> entities = level.getEntities((Entity) null, box, e -> true);
@@ -167,7 +166,7 @@ public class GameState {
                             .key().identifier().getPath());
                     obj.addProperty("name", e.getName().getString());
 
-                    // Position
+                    // 坐标
                     BlockPos ePos = e.blockPosition();
                     JsonArray posArr = new JsonArray();
                     posArr.add(ePos.getX());
@@ -186,7 +185,7 @@ public class GameState {
         return arr;
     }
 
-    /** Scan companion inventory and return a summary as JSON array. */
+    /** 扫描同伴背包并返回 JSON 数组格式的摘要 */
     private static JsonArray scanInventory(SimpleContainer inventory) {
         JsonArray arr = new JsonArray();
         for (int i = 0; i < inventory.getContainerSize(); i++) {
@@ -204,7 +203,7 @@ public class GameState {
         return arr;
     }
 
-    /** Convert Minecraft day-time ticks to a human-readable string. */
+    /** 将 Minecraft 的 day-time ticks 转换为可读字符串 */
     private static String formatTime(long dayTime) {
         int hours = (int) ((dayTime / 1000 + 6) % 24);
         int minutes = (int) ((dayTime % 1000) * 60 / 1000);

@@ -11,15 +11,15 @@ import net.minecraft.core.BlockPos;
 import java.util.UUID;
 
 /**
- * Represents a single action the AI companion can execute.
+ * AI 同伴可以执行的单个动作
  * <p>
- * Fields are populated depending on the action type:
+ * 根据动作类型填充不同字段：
  * <ul>
  *   <li>MOVE / MINE / PLACE_BLOCK → targetPos</li>
- *   <li>ATTACK → targetEntityId (+ optional targetEntityName)</li>
+ *   <li>ATTACK → targetEntityId（+ 可选的 targetEntityName）</li>
  *   <li>CHAT → message</li>
- *   <li>WAIT → (no extra fields, duration controlled by executor)</li>
- *   <li>EAT / USE_ITEM / DROP_ITEM / SLEEP → (no extra fields)</li>
+ *   <li>WAIT →（无额外字段，持续时间由执行器控制）</li>
+ *   <li>EAT / USE_ITEM / DROP_ITEM / SLEEP →（无额外字段）</li>
  * </ul>
  */
 public class Action {
@@ -43,34 +43,34 @@ public class Action {
         this.reason = reason;
     }
 
-    // ── Static factories ────────────────────────────────────────────────────
+    // ── 静态工厂方法 ────────────────────────────────────────────────────────
 
-    /** Simple action with no extra parameters (WAIT, EAT, SLEEP, etc.) */
+    /** 无额外参数的简单动作（WAIT、EAT、SLEEP 等） */
     public static Action simple(ActionType type, String reason) {
         return new Action(type, null, null, null, null, reason);
     }
 
-    /** Move to a block position. */
+    /** 移动到指定方块位置 */
     public static Action move(BlockPos pos, String reason) {
         return new Action(ActionType.MOVE, pos, null, null, null, reason);
     }
 
-    /** Mine a block at the given position. */
+    /** 挖掘指定位置的方块 */
     public static Action mine(BlockPos pos, String reason) {
         return new Action(ActionType.MINE, pos, null, null, null, reason);
     }
 
-    /** Attack the nearest entity of the given type within searchRange blocks. */
+    /** 攻击 searchRange 范围内指定类型的最近实体 */
     public static Action attack(String entityName, int searchRange, String reason) {
         return new Action(ActionType.ATTACK, null, null, entityName, null, reason);
     }
 
-    /** Send a chat message to nearby players. */
+    /** 向附近玩家发送聊天消息 */
     public static Action chat(String message, String reason) {
         return new Action(ActionType.CHAT, null, null, null, message, reason);
     }
 
-    // ── Getters ─────────────────────────────────────────────────────────────
+    // ── Getter 方法 ─────────────────────────────────────────────────────────
 
     public ActionType getType() { return type; }
     public BlockPos getTargetPos() { return targetPos; }
@@ -79,7 +79,7 @@ public class Action {
     public String getMessage() { return message; }
     public String getReason() { return reason; }
 
-    // ── JSON serialization ──────────────────────────────────────────────────
+    // ── JSON 序列化 ─────────────────────────────────────────────────────────
 
     public String toJson() {
         JsonObject obj = new JsonObject();
@@ -93,15 +93,15 @@ public class Action {
     }
 
     /**
-     * Parse an Action from AI JSON output.
-     * Expected format:
+     * 从 AI 的 JSON 输出中解析 Action
+     * 期望格式：
      * <pre>
      * {
      *   "action": "move|mine|attack|chat|wait|eat|sleep|drop_item|use_item|place_block",
-     *   "target": [x, y, z],         // optional, for MOVE/MINE/PLACE_BLOCK
-     *   "targetName": "zombie",       // optional, for ATTACK
-     *   "message": "hello",           // optional, for CHAT
-     *   "reason": "going to mine"     // optional, for logging
+     *   "target": [x, y, z],         // 可选，用于 MOVE/MINE/PLACE_BLOCK
+     *   "targetName": "zombie",       // 可选，用于 ATTACK
+     *   "message": "hello",           // 可选，用于 CHAT
+     *   "reason": "going to mine"     // 可选，用于日志
      * }
      * </pre>
      */
@@ -125,7 +125,7 @@ public class Action {
         }
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
+    // ── 辅助方法 ────────────────────────────────────────────────────────────
 
     private static ActionType parseActionType(String name) {
         return switch (name.toLowerCase()) {
