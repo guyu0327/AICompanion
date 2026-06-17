@@ -5,27 +5,29 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public class Config {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
-    // -- API 设置 --
+    // -- API 连接 --
     public static final ModConfigSpec.ConfigValue<String> API_URL;
     public static final ModConfigSpec.ConfigValue<String> API_KEY;
     public static final ModConfigSpec.ConfigValue<String> API_ENDPOINT;
     public static final ModConfigSpec.IntValue API_TIMEOUT;
 
-    // -- 模型设置 --
+    // -- 模型参数 --
     public static final ModConfigSpec.ConfigValue<String> MODEL_NAME;
     public static final ModConfigSpec.DoubleValue TEMPERATURE;
     public static final ModConfigSpec.IntValue MAX_TOKENS;
     public static final ModConfigSpec.BooleanValue ENABLE_JSON_MODE;
 
-    // -- 行为设置 --
+    // -- 行为 --
     public static final ModConfigSpec.ConfigValue<String> SYSTEM_PROMPT;
 
     public static final ModConfigSpec SPEC;
 
     static {
-        // -- API 设置 --
-        BUILDER.comment("API 连接设置")
-               .push("api");
+        BUILDER.comment("AI 同伴设置 — API 连接、模型参数、行为配置")
+               .push("ai");
+
+        // ── API 连接 ─────────────────────────────────────────────────────────
+        BUILDER.comment("", "  ── API 连接 ──");
 
         API_URL = BUILDER
                 .comment("AI API 的基础 URL（例如 https://api.openai.com）")
@@ -43,11 +45,8 @@ public class Config {
                 .comment("HTTP 请求超时时间（秒）")
                 .defineInRange("timeout", 30, 1, 300);
 
-        BUILDER.pop();
-
-        // -- 模型设置 --
-        BUILDER.comment("AI 模型设置")
-               .push("model");
+        // ── 模型参数 ─────────────────────────────────────────────────────────
+        BUILDER.comment("", "  ── 模型参数 ──");
 
         MODEL_NAME = BUILDER
                 .comment("用于 chat completions 的模型标识符")
@@ -66,11 +65,8 @@ public class Config {
                         + "部分 API（如 Anthropic）不支持此参数，设为 false 可关闭。")
                 .define("enableJsonMode", true);
 
-        BUILDER.pop();
-
-        // -- 行为设置 --
-        BUILDER.comment("AI 行为设置")
-               .push("behavior");
+        // ── 行为 ─────────────────────────────────────────────────────────────
+        BUILDER.comment("", "  ── 行为 ──");
 
         SYSTEM_PROMPT = BUILDER
                 .comment("定义 AI 同伴个性和行为的 system prompt")
