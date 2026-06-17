@@ -19,6 +19,7 @@ public class Config {
 
     // -- 行为 --
     public static final ModConfigSpec.ConfigValue<String> SYSTEM_PROMPT;
+    public static final ModConfigSpec.BooleanValue DROP_ITEMS_ON_DEATH;
 
     public static final ModConfigSpec SPEC;
 
@@ -71,6 +72,10 @@ public class Config {
         SYSTEM_PROMPT = BUILDER
                 .comment("定义 AI 同伴个性和行为的 system prompt")
                 .define("systemPrompt", "你是一个友好且乐于助人的 Minecraft AI 同伴。");
+
+        DROP_ITEMS_ON_DEATH = BUILDER
+                .comment("同伴死亡时是否掉落背包和手持物品。设为 false 时物品会保留并在重生后恢复。")
+                .define("dropItemsOnDeath", false);
 
         BUILDER.pop();
 

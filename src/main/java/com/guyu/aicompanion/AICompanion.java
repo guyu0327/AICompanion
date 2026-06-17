@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import com.guyu.aicompanion.command.ActionCommand;
 import com.guyu.aicompanion.command.SpawnCommand;
 import com.guyu.aicompanion.entity.AICompanionEntity;
+import com.guyu.aicompanion.entity.CompanionTracker;
 import com.guyu.aicompanion.event.AICompanionEventHandler;
 import com.guyu.aicompanion.event.ChatHandler;
 import com.mojang.logging.LogUtils;
@@ -140,6 +141,8 @@ public class AICompanion {
     // 使用 SubscribeEvent 让事件总线自动发现要调用的方法
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
+        // 每次服务器启动时重置同伴追踪器（清除上一次的重生状态）
+        CompanionTracker.reset();
     }
 
     // 实体设置时注册实体属性

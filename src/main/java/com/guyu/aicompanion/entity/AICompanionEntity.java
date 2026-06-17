@@ -1,16 +1,20 @@
 package com.guyu.aicompanion.entity;
 
+import com.guyu.aicompanion.Config;
 import com.guyu.aicompanion.action.Action;
 import com.guyu.aicompanion.action.ActionExecutor;
 import com.guyu.aicompanion.ai.AITickHandler;
 import com.guyu.aicompanion.menu.CompanionInventoryMenu;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ItemStack;
@@ -281,6 +285,83 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
 
     public boolean isCompanionSleeping() {
         return currentlySleeping;
+    }
+
+    // ── 死亡处理 ─────────────────────────────────────────────────────────────
+
+    @Override
+    public void die(DamageSource source) {
+        if (level().isClientSide()) {
+            super.die(source);
+            return;
+        }
+
+        // 保存状态到追踪器（用于重生恢复）
+        CompanionTracker.get().onCompanionDied(this);
+
+        boolean dropItems = Config.DROP_ITEMS_ON_DEATH.get();
+
+        if (!dropItems) {
+            // 不掉落：在 super.die() 处理掉落前清空所有装备和背包
+            // 已保存的物品会在重生时恢复
+            for (EquipmentSlot slot : EquipmentSlot.values()) {
+                setItemSlot(slot, ItemStack.EMPTY);
+            }
+            inventory.clearContent();
+        } else {
+            // 掉落：直接创建 ItemEntity 加入世界（匹配原版生物死亡掉落行为）
+            // 不使用 spawnAtLocation，因为 die() 期间 captureDrops() 可能非空导致物品被捕获而非生成
+            ServerLevel serverLevel = (ServerLevel) level();
+
+            // 先掉落所有装备槽（主手、副手、护甲）— 同样受 captureDrops() 影响，需手动处理
+            for (EquipmentSlot slot : EquipmentSlot.values()) {
+                ItemStack stack = getItemBySlot(slot);
+                if (!stack.isEmpty()) {
+                    dropItemToWorld(serverLevel, stack.copy());
+                    setItemSlot(slot, ItemStack.EMPTY);
+                }
+            }
+
+            // 再掉落自定义背包中的物品
+            for (int i = 0; i < inventory.getContainerSize(); i++) {
+                ItemStack stack = inventory.getItem(i);
+                if (!stack.isEmpty()) {
+                    dropItemToWorld(serverLevel, stack.copy());
+                }
+            }
+            inventory.clearContent();
+        }
+
+        super.die(source);
+    }
+
+    /**
+     * 直接将物品作为 ItemEntity 生成到世界中，匹配原版生物死亡掉落行为：
+     * <ul>
+     *   <li>拾取延迟 40 tick（2 秒），与原版生物掉落一致</li>
+     *   <li>随机水平速度散开，避免所有物品堆叠在同一点</li>
+     *   <li>向上初速度 0.2，模拟掉落弹起</li>
+     * </ul>
+     * 不使用 {@code spawnAtLocation}，因为 {@code die()} 期间 {@code captureDrops()}
+     * 可能返回非空集合，导致物品被捕获而非真正生成到世界中。
+     */
+    private void dropItemToWorld(ServerLevel level, ItemStack stack) {
+        ItemEntity itemEntity = new ItemEntity(
+                level,
+                this.getX(),
+                this.getY() + 0.5,
+                this.getZ(),
+                stack);
+        // 原版生物死亡掉落拾取延迟 = 40 tick（2 秒）
+        itemEntity.setPickUpDelay(40);
+        // 随机水平散开，模拟原版掉落物的分散效果
+        float angle = level.getRandom().nextFloat() * (float) (Math.PI * 2.0);
+        float speed = level.getRandom().nextFloat() * 0.2F;
+        itemEntity.setDeltaMovement(
+                Math.cos(angle) * speed,
+                0.2,
+                Math.sin(angle) * speed);
+        level.addFreshEntity(itemEntity);
     }
 
     @Override
