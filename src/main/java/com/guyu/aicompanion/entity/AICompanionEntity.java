@@ -2,7 +2,12 @@ package com.guyu.aicompanion.entity;
 
 import com.guyu.aicompanion.action.ActionExecutor;
 import com.guyu.aicompanion.ai.AITickHandler;
+import com.guyu.aicompanion.menu.CompanionInventoryMenu;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.MenuProvider;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -20,11 +25,14 @@ import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
 import net.minecraft.world.entity.ai.goal.target.HurtByTargetGoal;
 import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
 import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.AABB;
+import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 
@@ -32,8 +40,10 @@ import java.util.List;
  * AI 同伴实体 — 外观与 Minecraft 玩家完全相同（Steve 皮肤）。
  * 行为由外部 AI 系统通过 {@link ActionExecutor} 驱动，
  * 结合原版 AI 目标实现自动战斗和环境行为。
+ * <p>
+ * 实现 {@link MenuProvider} 以支持 Shift+右键打开背包 GUI。
  */
-public class AICompanionEntity extends PathfinderMob {
+public class AICompanionEntity extends PathfinderMob implements MenuProvider {
 
     private final ActionExecutor actionExecutor;
     private final AITickHandler aiTickHandler;
@@ -249,6 +259,38 @@ public class AICompanionEntity extends PathfinderMob {
      */
     public SimpleContainer getInventory() {
         return inventory;
+    }
+
+    // ── MenuProvider 实现 — Shift+右键打开背包 GUI ─────────────────────────
+
+    /**
+     * 右键交互处理。
+     * <ul>
+     *   <li>Shift + 右键：打开同伴背包 GUI</li>
+     *   <li>普通右键：保持默认行为</li>
+     * </ul>
+     */
+    @Override
+    protected InteractionResult mobInteract(Player player, InteractionHand hand) {
+        if (player.isShiftKeyDown() && !level().isClientSide()) {
+            player.openMenu(this, buf -> buf.writeVarInt(getId()));
+            return InteractionResult.CONSUME;
+        }
+        return super.mobInteract(player, hand);
+    }
+
+    /** 背包 GUI 的标题 — 使用同伴的名字 */
+    @Override
+    public Component getDisplayName() {
+        return getName();
+    }
+
+    /** 服务端：创建背包菜单实例 */
+    @Override
+    public @Nullable AbstractContainerMenu createMenu(int containerId,
+                                                       Inventory playerInv,
+                                                       Player player) {
+        return new CompanionInventoryMenu(containerId, playerInv, this);
     }
 
     /** 获取当前饥饿等级（0-20） */

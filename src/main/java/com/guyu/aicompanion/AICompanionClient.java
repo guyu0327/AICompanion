@@ -1,5 +1,6 @@
 package com.guyu.aicompanion;
 
+import com.guyu.aicompanion.client.CompanionInventoryScreen;
 import com.guyu.aicompanion.entity.AICompanionRenderer;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -9,6 +10,7 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.client.gui.ConfigurationScreen;
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 
@@ -32,5 +34,11 @@ public class AICompanionClient {
     @SubscribeEvent
     static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(AICompanion.COMPANION.get(), AICompanionRenderer::new);
+    }
+
+    // 注册菜单界面 — Shift+右键同伴时打开背包 GUI
+    @SubscribeEvent
+    static void registerMenuScreens(RegisterMenuScreensEvent event) {
+        event.register(AICompanion.COMPANION_INVENTORY.get(), CompanionInventoryScreen::new);
     }
 }

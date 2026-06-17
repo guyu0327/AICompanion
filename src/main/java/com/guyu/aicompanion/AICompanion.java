@@ -9,6 +9,7 @@ import com.guyu.aicompanion.event.AICompanionEventHandler;
 import com.guyu.aicompanion.event.ChatHandler;
 import com.mojang.logging.LogUtils;
 
+import com.guyu.aicompanion.menu.CompanionInventoryMenu;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -18,6 +19,7 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.CreativeModeTabs;
@@ -25,6 +27,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
+import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -56,6 +59,8 @@ public class AICompanion {
     public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MODID);
     // 实体类型延迟注册表
     public static final DeferredRegister<EntityType<?>> ENTITY_TYPES = DeferredRegister.create(Registries.ENTITY_TYPE, MODID);
+    // 菜单类型延迟注册表
+    public static final DeferredRegister<MenuType<?>> MENUS = DeferredRegister.create(Registries.MENU, MODID);
 
     // AI 同伴实体类型注册
     public static final DeferredHolder<EntityType<?>, EntityType<AICompanionEntity>> COMPANION =
@@ -68,6 +73,11 @@ public class AICompanion {
                             .build(ResourceKey.create(Registries.ENTITY_TYPE,
                                     Identifier.fromNamespaceAndPath(MODID, "ai_companion")))
             );
+
+    // AI 同伴背包菜单类型 — 使用 IMenuTypeExtension 支持向客户端传递实体 ID
+    public static final DeferredHolder<MenuType<?>, MenuType<CompanionInventoryMenu>> COMPANION_INVENTORY =
+            MENUS.register("companion_inventory",
+                    () -> IMenuTypeExtension.create(CompanionInventoryMenu::new));
 
     // 创建方块 "aicompanion:example_block"
     public static final DeferredBlock<Block> EXAMPLE_BLOCK = BLOCKS.registerSimpleBlock("example_block", p -> p.mapColor(MapColor.STONE));
@@ -98,6 +108,7 @@ public class AICompanion {
         ITEMS.register(modEventBus);
         CREATIVE_MODE_TABS.register(modEventBus);
         ENTITY_TYPES.register(modEventBus);
+        MENUS.register(modEventBus);
 
         // 注册实体属性
         modEventBus.addListener(this::registerEntityAttributes);
