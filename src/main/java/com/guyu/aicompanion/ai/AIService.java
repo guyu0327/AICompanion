@@ -14,6 +14,10 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 处理与 OpenAI 兼容的 Chat Completions API 的 HTTP 通信。
@@ -27,6 +31,17 @@ public class AIService {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private static final Gson GSON = new Gson();
+    private static final ScheduledExecutorService RETRY_SCHEDULER =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "AICompanion-Retry");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /** 最大重试次数（不含首次请求） */
+    private static final int MAX_RETRIES = 2;
+    /** 基础重试延迟（毫秒） */
+    private static final long BASE_RETRY_DELAY_MS = 1000;
 
     /** OpenAI 格式的单个聊天消息 */
     public record Message(String role, String content) {}
@@ -69,6 +84,13 @@ public class AIService {
             body.addProperty("temperature", temperature);
             body.addProperty("max_tokens", maxTokens);
 
+            // JSON 模式：要求 API 返回纯 JSON（部分提供商不支持，可通过配置关闭）
+            if (Config.ENABLE_JSON_MODE.get()) {
+                JsonObject responseFormat = new JsonObject();
+                responseFormat.addProperty("type", "json_object");
+                body.add("response_format", responseFormat);
+            }
+
             JsonArray msgsArr = new JsonArray();
             for (Message msg : messages) {
                 JsonObject m = new JsonObject();
@@ -91,24 +113,100 @@ public class AIService {
             AICompanion.LOGGER.debug("[AI] 发送请求: {}", url);
             AICompanion.LOGGER.debug("[AI] 请求体: {}", body);
 
-            return HTTP_CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenApply(response -> {
-                        int statusCode = response.statusCode();
-                        String responseBody = response.body();
-                        AICompanion.LOGGER.debug("[AI] 响应状态: {}", statusCode);
-                        AICompanion.LOGGER.debug("[AI] 响应体: {}", responseBody);
-
-                        if (statusCode != 200) {
-                            AICompanion.LOGGER.error("[AI] API 返回 {} — URL: {}", statusCode, url);
-                            throw new RuntimeException(
-                                    "API 返回错误 " + statusCode + " (URL: " + url + "): " + responseBody);
-                        }
-                        return parseResponse(responseBody);
-                    });
+            return sendWithRetry(request, url, MAX_RETRIES);
         } catch (Exception e) {
             AICompanion.LOGGER.error("[AI] 构建请求失败", e);
             return CompletableFuture.failedFuture(e);
         }
+    }
+
+    /**
+     * 带重试的 HTTP 请求发送。
+     * 对 429（限流）、5xx（服务端错误）和连接超时自动重试，使用指数退避。
+     */
+    private static CompletableFuture<String> sendWithRetry(
+            HttpRequest request, String url, int retriesLeft) {
+        return HTTP_CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenCompose(response -> {
+                    int statusCode = response.statusCode();
+                    String responseBody = response.body();
+                    AICompanion.LOGGER.debug("[AI] 响应状态: {}", statusCode);
+                    AICompanion.LOGGER.debug("[AI] 响应体: {}", responseBody);
+
+                    if (statusCode == 200) {
+                        try {
+                            return CompletableFuture.completedFuture(parseResponse(responseBody));
+                        } catch (Exception e) {
+                            return CompletableFuture.failedFuture(e);
+                        }
+                    }
+
+                    // 可重试的状态码：429（限流）、5xx（服务端错误）
+                    boolean retryable = statusCode == 429 || statusCode >= 500;
+                    if (retryable && retriesLeft > 0) {
+                        long delayMs = computeRetryDelay(response, MAX_RETRIES - retriesLeft + 1);
+                        AICompanion.LOGGER.warn("[AI] API 返回 {}，将在 {}ms 后重试（剩余 {} 次）",
+                                statusCode, delayMs, retriesLeft);
+                        return delay(delayMs).thenCompose(ignored ->
+                                sendWithRetry(request, url, retriesLeft - 1));
+                    }
+
+                    AICompanion.LOGGER.error("[AI] API 返回 {} — URL: {}", statusCode, url);
+                    return CompletableFuture.failedFuture(new RuntimeException(
+                            "API 返回错误 " + statusCode + " (URL: " + url + "): " + responseBody));
+                })
+                .exceptionally(e -> {
+                    // 网络级异常（连接超时等）也可以重试
+                    if (retriesLeft > 0 && isRetryableException(e)) {
+                        long delayMs = BASE_RETRY_DELAY_MS * (1L << (MAX_RETRIES - retriesLeft));
+                        AICompanion.LOGGER.warn("[AI] 请求异常: {}，将在 {}ms 后重试（剩余 {} 次）",
+                                e.getMessage(), delayMs, retriesLeft);
+                        return delay(delayMs).thenCompose(ignored ->
+                                sendWithRetry(request, url, retriesLeft - 1)).join();
+                    }
+                    throw e instanceof RuntimeException re ? re
+                            : new RuntimeException(e);
+                });
+    }
+
+    /**
+     * 计算重试延迟。优先使用 429 响应中的 Retry-After header，
+     * 否则使用指数退避。
+     */
+    private static long computeRetryDelay(HttpResponse<String> response, int attempt) {
+        // 检查 Retry-After header（秒数）
+        String retryAfter = response.headers().firstValue("Retry-After").orElse(null);
+        if (retryAfter != null) {
+            try {
+                long seconds = Long.parseLong(retryAfter);
+                return Math.min(seconds * 1000, 30_000); // 上限 30 秒
+            } catch (NumberFormatException ignored) {
+                // 可能是 HTTP-date 格式，忽略并使用退避
+            }
+        }
+        // 指数退避：1s, 2s, 4s...
+        return BASE_RETRY_DELAY_MS * (1L << (attempt - 1));
+    }
+
+    /** 判断异常是否值得重试（连接超时、网络错误等） */
+    private static boolean isRetryableException(Throwable e) {
+        Throwable cause = e;
+        while (cause != null) {
+            if (cause instanceof java.net.http.HttpTimeoutException
+                    || cause instanceof java.net.ConnectException
+                    || cause instanceof java.net.http.HttpConnectTimeoutException) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
+    }
+
+    /** 返回一个在指定毫秒后完成的 CompletableFuture */
+    private static CompletableFuture<Void> delay(long millis) {
+        CompletableFuture<Void> f = new CompletableFuture<>();
+        RETRY_SCHEDULER.schedule(() -> f.complete(null), millis, TimeUnit.MILLISECONDS);
+        return f;
     }
 
     /**

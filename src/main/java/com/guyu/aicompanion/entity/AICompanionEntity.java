@@ -18,6 +18,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.Pose;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
@@ -32,9 +33,11 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * AI 同伴实体 — 外观与 Minecraft 玩家完全相同（Steve 皮肤）。
@@ -70,6 +73,21 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
     private int hungerTickCounter = 0;
     private static final int HUNGER_TICK_INTERVAL = 600;
 
+    /** 行为模式：跟随 / 待命 / 自由 */
+    private CompanionMode mode = CompanionMode.FOLLOW;
+
+    /** 拥有者的 UUID — 跟随模式下会追踪此玩家 */
+    private @Nullable UUID ownerUuid = null;
+
+    /** 右键交互的 tick 冷却 — 防止 MC 单次右键多次触发 mobInteract */
+    private int lastInteractTick = -1;
+
+    /** FOLLOW 模式下，距离拥有者超过此距离才会触发跟随移动 */
+    private static final double FOLLOW_TRIGGER_DISTANCE = 4.0;
+    /** 睡觉回血间隔 — 每 100 ticks（5 秒）回复 1 HP */
+    private static final int SLEEP_HEAL_INTERVAL = 100;
+    private int sleepHealCounter = 0;
+
     public AICompanionEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
         this.aiTickHandler = new AITickHandler(this);
@@ -81,10 +99,11 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
         // ── 目标选择（战斗感知）─────────────────────────────────────────────
         // 反击任何攻击我们的实体（优先级 1 = 最高）
         this.goalSelector.addGoal(1, new HurtByTargetGoal(this));
-        // 自动检测并锁定 16 格内的敌对生物
-        // 注意：null 谓词表示会锁定任何 Mob；只针对敌对生物需要谓词类型变通，暂可接受
+        // 自动检测并锁定 16 格内的敌对生物（Enemy 接口：僵尸、骷髅、蜘蛛等）
+        // 通过谓词过滤，避免攻击村民、玩家宠物、商队羊驼等友好生物
         this.targetSelector.addGoal(2,
-                new NearestAttackableTargetGoal<>(this, Mob.class, 10, true, false, null));
+                new NearestAttackableTargetGoal<>(this, Mob.class, 10, true, false,
+                        (target, level) -> target instanceof Enemy));
 
         // ── 移动 / 行为目标 ─────────────────────────────────────────────────
         // 在水中漂浮（防止溺水）
@@ -103,10 +122,12 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
     public void tick() {
         // 有攻击目标时：自动装备最佳武器 + 自动触发攻击动作
         // 战斗逻辑完全由 ActionExecutor 统一处理（近战/远程都支持）
+        // 所有模式下都允许反击（包括 STAND 模式）
         if (!level().isClientSide() && getTarget() != null) {
             actionExecutor.autoEquipWeapon(getTarget());
-            // 仅在 IDLE 状态启动攻击动作（避免每 tick 重复 startAction 重置蓄力状态）
-            if (actionExecutor.getState() == ActionExecutor.State.IDLE) {
+            // 仅在 IDLE 状态且不在撤退冷却中时启动攻击动作
+            if (actionExecutor.getState() == ActionExecutor.State.IDLE
+                    && !actionExecutor.isRetreating()) {
                 String entityName = getTarget().getType()
                         .builtInRegistryHolder().key().identifier().getPath();
                 actionExecutor.startAction(
@@ -117,11 +138,20 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
         super.tick();
         // 在服务器端驱动动作状态机
         actionExecutor.tick();
-        // 驱动 AI 决策循环（每隔几秒调用 AI API）
-        aiTickHandler.tick();
 
-        // 饥饿计时（仅服务器端）
         if (!level().isClientSide()) {
+            // FOLLOW 模式：空闲时跟随拥有者
+            if (mode == CompanionMode.FOLLOW && actionExecutor.isIdle()
+                    && getTarget() == null && !currentlySleeping) {
+                tickFollow();
+            }
+
+            // STAND 模式下跳过 AI 决策，FREE 模式下正常驱动 AI
+            if (mode != CompanionMode.STAND) {
+                aiTickHandler.tick();
+            }
+
+            // 饥饿计时
             hungerTickCounter++;
             if (hungerTickCounter >= HUNGER_TICK_INTERVAL) {
                 hungerTickCounter = 0;
@@ -134,17 +164,44 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
                     }
                 }
             }
-        }
 
-        // 睡觉时每 tick 强制 SLEEPING 姿态。
-        // 这绕过原版的床存在检查，否则会立即唤醒实体。
-        if (currentlySleeping && !level().isClientSide()) {
-            setPose(Pose.SLEEPING);
-        }
+            // 睡觉时每 tick 强制 SLEEPING 姿态 + 回血
+            if (currentlySleeping) {
+                setPose(Pose.SLEEPING);
+                sleepHealCounter++;
+                if (sleepHealCounter >= SLEEP_HEAL_INTERVAL) {
+                    sleepHealCounter = 0;
+                    if (getHealth() < getMaxHealth()) {
+                        heal(1.0F);
+                    }
+                }
+            } else {
+                sleepHealCounter = 0;
+            }
 
-        // 自动拾取附近的物品（仅服务器端）
-        if (!level().isClientSide()) {
+            // 自动拾取附近的物品（所有模式都拾取）
             tickPickupItems();
+        }
+    }
+
+    /**
+     * FOLLOW 模式：跟随拥有者。
+     * 当距离超过 {@value #FOLLOW_TRIGGER_DISTANCE} 格时，
+     * 启动移动到拥有者位置的动作。
+     */
+    private void tickFollow() {
+        ServerPlayer owner = getOwner();
+        if (owner == null || owner.level() != level()) return;
+
+        double dist = distanceTo(owner);
+        if (dist > FOLLOW_TRIGGER_DISTANCE) {
+            net.minecraft.core.BlockPos ownerPos = owner.blockPosition();
+            getNavigation().moveTo(
+                    ownerPos.getX() + 0.5, ownerPos.getY(),
+                    ownerPos.getZ() + 0.5, 1.2);
+        } else {
+            // 距离足够近，停止移动
+            getNavigation().stop();
         }
     }
 
@@ -174,7 +231,7 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
      * 尝试将 ItemStack 添加到背包中。
      * 返回未能放入的物品。
      */
-    private ItemStack addToInventory(ItemStack stack) {
+    public ItemStack addToInventory(ItemStack stack) {
         // 先尝试与已有物品堆叠
         int remaining = stack.getCount();
         for (int i = 0; i < inventory.getContainerSize() && remaining > 0; i++) {
@@ -244,6 +301,12 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
         // 保存饥饿值
         output.putInt("Hunger", hunger);
         output.putInt("HungerTickCounter", hungerTickCounter);
+        // 保存行为模式
+        output.putString("Mode", mode.name());
+        // 保存拥有者
+        if (ownerUuid != null) {
+            output.putString("OwnerUUID", ownerUuid.toString());
+        }
     }
 
     @Override
@@ -265,6 +328,22 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
         // 加载饥饿值
         hunger = input.getIntOr("Hunger", MAX_HUNGER);
         hungerTickCounter = input.getIntOr("HungerTickCounter", 0);
+        // 加载行为模式
+        String modeStr = input.getStringOr("Mode", CompanionMode.FOLLOW.name());
+        try {
+            mode = CompanionMode.valueOf(modeStr);
+        } catch (IllegalArgumentException e) {
+            mode = CompanionMode.FOLLOW;
+        }
+        // 加载拥有者
+        String ownerStr = input.getStringOr("OwnerUUID", "");
+        if (!ownerStr.isEmpty()) {
+            try {
+                ownerUuid = UUID.fromString(ownerStr);
+            } catch (IllegalArgumentException e) {
+                ownerUuid = null;
+            }
+        }
     }
 
     /**
@@ -285,10 +364,34 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
      */
     @Override
     protected InteractionResult mobInteract(Player player, InteractionHand hand) {
-        if (player.isShiftKeyDown() && !level().isClientSide()) {
+        if (level().isClientSide()) return InteractionResult.PASS;
+
+        // 防止 MC 单次右键多次触发交互（同一 tick 内只处理一次）
+        int currentTick = tickCount;
+        if (currentTick == lastInteractTick) return InteractionResult.PASS;
+        lastInteractTick = currentTick;
+
+        if (player.isShiftKeyDown()) {
+            // Shift + 右键：打开背包 GUI
             player.openMenu(this, buf -> buf.writeVarInt(getId()));
             return InteractionResult.CONSUME;
         }
+
+        ItemStack held = player.getItemInHand(hand);
+        if (held.isEmpty()) {
+            // 空手右键：切换行为模式
+            CompanionMode oldMode = mode;
+            mode = mode.next();
+            // 切换模式时重置当前动作
+            if (oldMode != mode) {
+                actionExecutor.cancel();
+            }
+            String msg = "[" + getName().getString() + "] 模式切换: "
+                    + oldMode.getDisplayName() + " → " + mode.getDisplayName();
+            player.sendSystemMessage(Component.literal(msg));
+            return InteractionResult.CONSUME;
+        }
+
         return super.mobInteract(player, hand);
     }
 
@@ -347,5 +450,30 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
 
     public AITickHandler getAiTickHandler() {
         return aiTickHandler;
+    }
+
+    public CompanionMode getMode() {
+        return mode;
+    }
+
+    public void setMode(CompanionMode mode) {
+        this.mode = mode;
+    }
+
+    public @Nullable UUID getOwnerUuid() {
+        return ownerUuid;
+    }
+
+    public void setOwnerUuid(@Nullable UUID uuid) {
+        this.ownerUuid = uuid;
+    }
+
+    /**
+     * 获取拥有者玩家实体（如果在线且在同一维度）。
+     */
+    public @Nullable ServerPlayer getOwner() {
+        if (ownerUuid == null) return null;
+        return ((net.minecraft.server.level.ServerLevel) level())
+                .getServer().getPlayerList().getPlayer(ownerUuid);
     }
 }

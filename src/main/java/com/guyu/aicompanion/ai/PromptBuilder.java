@@ -87,6 +87,8 @@ public class PromptBuilder {
         sb.append("- `nearbyEntities`: 附近实体列表，每个包含 `type`(类型名)、`pos`(坐标) 和 `distance`(距离)\n");
         sb.append("- `inventory`: 背包物品列表，每项包含 `slot`(格子编号)、`item`(物品名) 和 `count`(数量)\n");
         sb.append("- `hunger`: 当前饥饿值 (0-20)，低于6时应该进食\n");
+        sb.append("- `mode`: 当前行为模式 (FOLLOW=跟随玩家, STAND=原地待命, FREE=自由行动)\n");
+        sb.append("- `inventoryFreeSlots`: 背包剩余空格数\n");
         sb.append("**你可以直接使用这些坐标作为 move/mine/place_block 的 target**\n");
         sb.append("**你可以直接使用 nearbyEntities 中的 type 作为 attack 的 targetName**\n\n");
 
@@ -105,7 +107,8 @@ public class PromptBuilder {
         sb.append("- **时间感知**: 天黑(18:00后)时注意怪物出没，考虑 sleep 或 build shelter\n");
         sb.append("- **与玩家互动**: 可以通过 chat 与玩家交流，但不要每次都 chat\n");
         sb.append("- **饥饿管理**: 当 hunger 低于 10 时使用 eat 动作进食。背包里有食物才能吃\n");
-        sb.append("- **背包管理**: 你有 27 格背包，挖掘的物品会自动存入背包。背包里的物品可以在 state 中看到\n");
+        sb.append("- **背包管理**: 你有 27 格背包，挖掘的物品会自动存入背包。当 inventoryFreeSlots 为 0 时，背包已满，应先整理或用 drop_item 丢弃无用物品\n");
+        sb.append("- **模式遵守**: 当 mode 为 FOLLOW 时，不要远离玩家；当 mode 为 STAND 时，不要主动移动（但仍可反击敌人）；当 mode 为 FREE 时可自由行动\n");
 
         return sb.toString();
     }

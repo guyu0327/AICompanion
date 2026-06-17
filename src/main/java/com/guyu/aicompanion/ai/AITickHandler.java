@@ -4,12 +4,12 @@ import com.google.gson.JsonObject;
 import com.guyu.aicompanion.AICompanion;
 import com.guyu.aicompanion.action.Action;
 import com.guyu.aicompanion.action.ActionExecutor;
+import com.guyu.aicompanion.entity.AICompanionEntity;
 import com.guyu.aicompanion.state.GameState;
 import net.minecraft.server.level.ServerLevel;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * AI 决策主循环。从 AICompanionEntity.tick() 每 tick 调用。
@@ -26,16 +26,19 @@ public class AITickHandler {
 
     /** 同伴空闲时两次 AI 决策之间的 tick 数 */
     private static final int DECISION_INTERVAL_TICKS = 60;  // 约 3 秒
+    /** 两次请求之间的最小间隔（毫秒），防止短时间内连续请求 */
+    private static final long MIN_REQUEST_INTERVAL_MS = 1000;
 
-    private final net.minecraft.world.entity.Mob companion;
-    private final ChatHistory chatHistory = new ChatHistory();
+    private final AICompanionEntity companion;
+    private final ChatHistory chatHistory;
 
     private int ticksSinceLastDecision = 0;
     private boolean awaitingResponse = false;
-    private final AtomicBoolean responseHandled = new AtomicBoolean(false);
+    private long lastRequestTimeMs = 0;
 
-    public AITickHandler(net.minecraft.world.entity.Mob companion) {
+    public AITickHandler(AICompanionEntity companion) {
         this.companion = companion;
+        this.chatHistory = new ChatHistory(companion.getName().getString());
     }
 
     /**
@@ -47,12 +50,6 @@ public class AITickHandler {
 
         ActionExecutor exec = getExecutor();
         if (exec == null) return;
-
-        // 如果响应刚到达，在服务器线程上处理它
-        // （CompletableFuture 的回调在 HTTP 线程上运行）
-        if (responseHandled.compareAndSet(true, false)) {
-            // 已在回调中处理 — 这里无需额外操作
-        }
 
         // 如果仍在处理中，等待
         if (awaitingResponse) return;
@@ -77,6 +74,17 @@ public class AITickHandler {
      * 响应到达后解析并在主服务器线程上调度动作执行。
      */
     private void requestDecision(ActionExecutor exec) {
+        // 限流：确保两次请求之间有最小间隔
+        long now = System.currentTimeMillis();
+        long elapsed = now - lastRequestTimeMs;
+        if (elapsed < MIN_REQUEST_INTERVAL_MS && lastRequestTimeMs > 0) {
+            // 延迟到满足间隔后再发送
+            long waitTicks = (MIN_REQUEST_INTERVAL_MS - elapsed) / 50 + 1;
+            ticksSinceLastDecision = DECISION_INTERVAL_TICKS - (int) waitTicks;
+            return;
+        }
+        lastRequestTimeMs = now;
+
         awaitingResponse = true;
 
         // 1. 收集游戏状态
@@ -227,13 +235,9 @@ public class AITickHandler {
     public void reset() {
         awaitingResponse = false;
         ticksSinceLastDecision = 0;
-        responseHandled.set(false);
     }
 
     private ActionExecutor getExecutor() {
-        if (companion instanceof com.guyu.aicompanion.entity.AICompanionEntity ace) {
-            return ace.getActionExecutor();
-        }
-        return null;
+        return companion.getActionExecutor();
     }
 }

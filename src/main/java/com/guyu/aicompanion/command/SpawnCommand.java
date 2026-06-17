@@ -8,6 +8,7 @@ import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.phys.Vec3;
 
@@ -35,6 +36,11 @@ public class SpawnCommand {
         );
 
         if (entity != null) {
+            // 绑定拥有者为命令执行者（如果是玩家）
+            ServerPlayer player = source.getPlayer();
+            if (player != null) {
+                entity.setOwnerUuid(player.getUUID());
+            }
             source.sendSuccess(() -> Component.translatable("command.aicompanion.spawn.success"), true);
             return 1;
         } else {

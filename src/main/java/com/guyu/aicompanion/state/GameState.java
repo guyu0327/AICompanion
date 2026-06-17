@@ -8,7 +8,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -34,7 +33,7 @@ public class GameState {
     /**
      * 收集指定同伴的所有相关游戏状态。
      */
-    public static JsonObject collect(Mob companion, ChatHistory chatHistory) {
+    public static JsonObject collect(AICompanionEntity companion, ChatHistory chatHistory) {
         ServerLevel level = (ServerLevel) companion.level();
         BlockPos pos = companion.blockPosition();
 
@@ -79,11 +78,16 @@ public class GameState {
         }
 
         // 背包
-        if (companion instanceof AICompanionEntity ace) {
-            state.add("inventory", scanInventory(ace.getInventory()));
-            state.addProperty("hunger", ace.getHunger());
-            state.addProperty("maxHunger", ace.getMaxHunger());
+        state.add("inventory", scanInventory(companion.getInventory()));
+        state.addProperty("hunger", companion.getHunger());
+        state.addProperty("maxHunger", companion.getMaxHunger());
+        state.addProperty("mode", companion.getMode().name());
+        int freeSlots = 0;
+        for (int i = 0; i < companion.getInventory().getContainerSize(); i++) {
+            if (companion.getInventory().getItem(i).isEmpty()) freeSlots++;
         }
+        state.addProperty("inventoryFreeSlots", freeSlots);
+        state.addProperty("inventoryTotalSlots", companion.getInventory().getContainerSize());
 
         // 附近方块（按类型汇总）
         state.add("nearbyBlocks", scanBlocks(level, pos));
@@ -151,7 +155,7 @@ public class GameState {
     }
 
     /** 列出附近实体，包含类型、坐标、距离和生命值 */
-    private static JsonArray scanEntities(Mob companion, ServerLevel level) {
+    private static JsonArray scanEntities(AICompanionEntity companion, ServerLevel level) {
         AABB box = companion.getBoundingBox().inflate(ENTITY_SCAN_RANGE);
         List<Entity> entities = level.getEntities((Entity) null, box, e -> true);
         JsonArray arr = new JsonArray();

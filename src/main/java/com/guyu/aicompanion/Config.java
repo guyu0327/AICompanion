@@ -15,6 +15,7 @@ public class Config {
     public static final ModConfigSpec.ConfigValue<String> MODEL_NAME;
     public static final ModConfigSpec.DoubleValue TEMPERATURE;
     public static final ModConfigSpec.IntValue MAX_TOKENS;
+    public static final ModConfigSpec.BooleanValue ENABLE_JSON_MODE;
 
     // -- 行为设置 --
     public static final ModConfigSpec.ConfigValue<String> SYSTEM_PROMPT;
@@ -60,6 +61,11 @@ public class Config {
                 .comment("响应中生成的最大 token 数")
                 .defineInRange("maxTokens", 1024, 1, 128000);
 
+        ENABLE_JSON_MODE = BUILDER
+                .comment("是否启用 JSON 模式（response_format: json_object），要求 AI 返回纯 JSON。"
+                        + "部分 API（如 Anthropic）不支持此参数，设为 false 可关闭。")
+                .define("enableJsonMode", true);
+
         BUILDER.pop();
 
         // -- 行为设置 --
@@ -68,7 +74,7 @@ public class Config {
 
         SYSTEM_PROMPT = BUILDER
                 .comment("定义 AI 同伴个性和行为的 system prompt")
-                .define("systemPrompt", "You are a helpful and friendly AI companion in Minecraft.");
+                .define("systemPrompt", "你是一个友好且乐于助人的 Minecraft AI 同伴。");
 
         BUILDER.pop();
 
