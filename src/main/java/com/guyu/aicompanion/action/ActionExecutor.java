@@ -10,9 +10,12 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.ItemAttributeModifiers;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
@@ -504,6 +507,96 @@ public class ActionExecutor {
         return isPickaxe || isAxe || isShovel || isSword || isHoe;
     }
 
+    /**
+     * 自动从背包装备伤害最高的武器。
+     * 通过读取物品的 {@link ItemAttributeModifiers} 组件中的攻击伤害属性，
+     * 选择伤害最高的武器换到主手；若当前手持武器已经更好则不更换。
+     * <p>
+     * 适用于剑、斧、三叉戟、锤等伤害类武器。
+     * 由 {@code AICompanionEntity.tick()} 在每 tick 有攻击目标时调用，
+     * 保证无论是 AI 动作系统还是原版 {@code MeleeAttackGoal} 触发的攻击都能自动切换武器。
+     */
+    public void autoEquipWeapon() {
+        if (!(companion instanceof AICompanionEntity ace)) return;
+
+        ItemStack held = companion.getMainHandItem();
+        float currentDamage = getWeaponAttackDamage(held);
+
+        int bestSlot = -1;
+        float bestDamage = currentDamage;
+
+        for (int i = 0; i < ace.getInventory().getContainerSize(); i++) {
+            ItemStack stack = ace.getInventory().getItem(i);
+            if (stack.isEmpty()) continue;
+
+            String itemId = stack.getItem().builtInRegistryHolder()
+                    .key().identifier().getPath();
+            // 只考虑伤害类武器
+            if (!isDamageWeapon(itemId)) continue;
+
+            float dmg = getWeaponAttackDamage(stack);
+            // 同伤害时优先保留当前武器（避免无意义换装）
+            if (dmg > bestDamage) {
+                bestDamage = dmg;
+                bestSlot = i;
+            }
+        }
+
+        if (bestSlot >= 0) {
+            ItemStack weapon = ace.getInventory().getItem(bestSlot);
+            ItemStack oldHand = companion.getMainHandItem().copy();
+            companion.setItemInHand(InteractionHand.MAIN_HAND, weapon.copy());
+            ace.getInventory().setItem(bestSlot, ItemStack.EMPTY);
+            if (!oldHand.isEmpty()) {
+                ace.getInventory().setItem(bestSlot, oldHand);
+            }
+            String weaponName = companion.getMainHandItem().getItem()
+                    .builtInRegistryHolder().key().identifier().getPath();
+            announce("装备了 " + weaponName);
+        }
+    }
+
+    /**
+     * 根据物品 ID 判断是否为伤害类武器。
+     */
+    private boolean isDamageWeapon(String itemId) {
+        return itemId.contains("sword")
+                || itemId.contains("axe")
+                || itemId.contains("trident")
+                || itemId.contains("mace")
+                || itemId.contains("bow")
+                || itemId.contains("crossbow");
+    }
+
+    /**
+     * 读取物品的 {@link ItemAttributeModifiers} 组件中的攻击伤害值。
+     * 无属性数据的物品返回 1.0（空手伤害）。
+     */
+    private float getWeaponAttackDamage(ItemStack stack) {
+        if (stack.isEmpty()) return 1.0F;
+        ItemAttributeModifiers modifiers = stack.get(DataComponents.ATTRIBUTE_MODIFIERS);
+        if (modifiers == null) return 1.0F;
+
+        float damage = 1.0F;
+        for (ItemAttributeModifiers.Entry entry : modifiers.modifiers()) {
+            String attrId = entry.attribute().getRegisteredName();
+            if (attrId.contains("attack_damage")) {
+                AttributeModifier mod = entry.modifier();
+                damage += (float) mod.amount();
+            }
+        }
+        return damage;
+    }
+
+    /**
+     * 获取同伴的实际攻击伤害（含装备武器加成）。
+     * 通过 AttributeMap 读取 MOB 属性，主手武器的加成会自动计入。
+     */
+    private float getCompanionAttackDamage() {
+        var attr = companion.getAttributes().getInstance(Attributes.ATTACK_DAMAGE);
+        return attr != null ? (float) attr.getValue() : ATTACK_DAMAGE;
+    }
+
     // ── 攻击 ────────────────────────────────────────────────────────────────
 
     private void beginAttack(Action action) {
@@ -519,6 +612,9 @@ public class ActionExecutor {
             completeAction();
             return;
         }
+        // 攻击前自动从背包中装备最佳武器
+        autoEquipWeapon();
+
         attackCooldown = 0;
         state = State.ATTACKING;
         announce("发现 " + targetName + "，发起攻击！");
@@ -549,11 +645,12 @@ public class ActionExecutor {
             return;
         }
 
-        // 攻击！
+        // 攻击！使用实际攻击伤害（考虑装备的武器加成）
+        float actualDamage = getCompanionAttackDamage();
         boolean hit = attackTarget.hurtServer(
                 level,
                 level.damageSources().mobAttack(companion),
-                ATTACK_DAMAGE);
+                actualDamage);
         companion.swing(InteractionHand.MAIN_HAND);
         attackCooldown = ATTACK_COOLDOWN;
 

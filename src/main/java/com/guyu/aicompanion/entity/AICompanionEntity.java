@@ -101,6 +101,12 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
 
     @Override
     public void tick() {
+        // 攻击目标存在时，在原版目标 AI（MeleeAttackGoal）执行前自动装备最佳武器，
+        // 保证无论是 AI 动作系统还是原版目标选择器触发的攻击都能切换到正确武器
+        if (!level().isClientSide() && getTarget() != null) {
+            actionExecutor.autoEquipWeapon();
+        }
+
         super.tick();
         // 在服务器端驱动动作状态机
         actionExecutor.tick();
