@@ -1,5 +1,6 @@
 package com.guyu.aicompanion.entity;
 
+import com.guyu.aicompanion.action.Action;
 import com.guyu.aicompanion.action.ActionExecutor;
 import com.guyu.aicompanion.ai.AITickHandler;
 import com.guyu.aicompanion.menu.CompanionInventoryMenu;
@@ -19,7 +20,6 @@ import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
-import net.minecraft.world.entity.ai.goal.MeleeAttackGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
 import net.minecraft.world.entity.ai.goal.target.HurtByTargetGoal;
@@ -89,8 +89,8 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
         // ── 移动 / 行为目标 ─────────────────────────────────────────────────
         // 在水中漂浮（防止溺水）
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        // 锁定目标后进行近战攻击
-        this.goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.2, false));
+        // 注意：不使用 MeleeAttackGoal — 战斗逻辑完全由 ActionExecutor.tickAttack() 统一处理
+        // 这样可以根据装备（近战/远程武器）选择不同的攻击行为
         // 看向附近的玩家
         this.goalSelector.addGoal(6, new LookAtPlayerGoal(this, Player.class, 8.0F));
         // 随机环顾四周（显得自然）
@@ -101,10 +101,17 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
 
     @Override
     public void tick() {
-        // 攻击目标存在时，在原版目标 AI（MeleeAttackGoal）执行前自动装备最佳武器，
-        // 保证无论是 AI 动作系统还是原版目标选择器触发的攻击都能切换到正确武器
+        // 有攻击目标时：自动装备最佳武器 + 自动触发攻击动作
+        // 战斗逻辑完全由 ActionExecutor 统一处理（近战/远程都支持）
         if (!level().isClientSide() && getTarget() != null) {
-            actionExecutor.autoEquipWeapon();
+            actionExecutor.autoEquipWeapon(getTarget());
+            // 仅在 IDLE 状态启动攻击动作（避免每 tick 重复 startAction 重置蓄力状态）
+            if (actionExecutor.getState() == ActionExecutor.State.IDLE) {
+                String entityName = getTarget().getType()
+                        .builtInRegistryHolder().key().identifier().getPath();
+                actionExecutor.startAction(
+                        Action.attack(entityName, 24, "自动锁定目标"));
+            }
         }
 
         super.tick();
