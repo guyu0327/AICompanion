@@ -33,7 +33,8 @@ public class ActionExecutor {
         MOVING,     // 移动中
         MINING,     // 挖掘中
         ATTACKING,  // 攻击中
-        WAITING     // 等待中
+        WAITING,    // 等待中
+        EATING      // 进食中
     }
 
     // ── 调优常量 ────────────────────────────────────────────────────────────
@@ -137,6 +138,7 @@ public class ActionExecutor {
             case MINING    -> miningController.tickMine();
             case ATTACKING -> combatController.tickAttack();
             case WAITING   -> tickWait();
+            case EATING    -> itemController.tickEat();
             default        -> {}
         }
     }
@@ -205,6 +207,7 @@ public class ActionExecutor {
         if (state == State.WAITING) waitRemaining = 0;
         if (state == State.MINING) miningController.cleanup();
         if (state == State.ATTACKING) combatController.cleanup();
+        if (state == State.EATING) itemController.cleanupEat();
         // 如果同伴在睡觉，唤醒它以便姿态正确重置
         if (companion.isCompanionSleeping()) {
             companion.wakeCompanionUp();
@@ -212,7 +215,7 @@ public class ActionExecutor {
     }
 
     /** 向 32 格内的所有玩家发送聊天消息，并记录到聊天历史中 */
-    void broadcast(String message) {
+    public void broadcast(String message) {
         ServerLevel level = (ServerLevel) companion.level();
         String senderName = companion.getName().getString();
         Component text = Component.literal("[" + senderName + "] " + message);

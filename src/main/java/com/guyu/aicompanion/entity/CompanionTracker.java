@@ -41,6 +41,7 @@ public class CompanionTracker {
     private ItemStack savedMainHand = ItemStack.EMPTY;
     private CompanionMode savedMode = CompanionMode.FOLLOW;
     private int savedHunger = 20;
+    private float savedSaturation = 5.0F;
 
     private CompanionTracker() {}
 
@@ -90,6 +91,7 @@ public class CompanionTracker {
         if (!dropItems) {
             // 不掉落：保存背包和主手物品，重生后恢复
             this.savedHunger = companion.getHunger();
+            this.savedSaturation = companion.getSaturation();
             savedInventory.clear();
             for (int i = 0; i < companion.getInventory().getContainerSize(); i++) {
                 ItemStack stack = companion.getInventory().getItem(i);
@@ -101,6 +103,7 @@ public class CompanionTracker {
         } else {
             // 掉落：清空存档，重生后背包为空
             this.savedHunger = 20; // 重生后饥饿值回满
+            this.savedSaturation = 5.0F; // 饱和度重置
             savedInventory.clear();
             savedMainHand = ItemStack.EMPTY;
         }
@@ -185,8 +188,10 @@ public class CompanionTracker {
         }
         // 恢复模式
         companion.setMode(savedMode);
-        // 重生后饥饿值和生命值回满
-        companion.setHunger(companion.getMaxHunger());
+        // 恢复饥饿和饱和度（掉落模式使用默认值）
+        companion.setHunger(savedHunger);
+        companion.setSaturation(savedSaturation);
+        // 重生后生命值回满
         companion.setHealth(companion.getMaxHealth());
     }
 

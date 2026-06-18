@@ -81,6 +81,7 @@ public class GameState {
         state.add("inventory", scanInventory(companion.getInventory()));
         state.addProperty("hunger", companion.getHunger());
         state.addProperty("maxHunger", companion.getMaxHunger());
+        state.addProperty("saturation", Math.round(companion.getSaturation() * 10.0) / 10.0);
         state.addProperty("mode", companion.getMode().name());
         int freeSlots = 0;
         for (int i = 0; i < companion.getInventory().getContainerSize(); i++) {

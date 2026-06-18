@@ -3,6 +3,7 @@ package com.guyu.aicompanion.entity;
 import com.guyu.aicompanion.Config;
 import com.guyu.aicompanion.action.Action;
 import com.guyu.aicompanion.action.ActionExecutor;
+import com.guyu.aicompanion.action.ActionType;
 import com.guyu.aicompanion.ai.AITickHandler;
 import com.guyu.aicompanion.menu.CompanionInventoryMenu;
 import net.minecraft.core.component.DataComponents;
@@ -69,13 +70,25 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
      */
     private boolean currentlySleeping = false;
 
-    /** 饥饿等级（0-20，类似玩家）。随时间减少；降到 0 时同伴会受伤。 */
+    /** 饥饿等级（0-20，类似玩家）。随行动消耗；降到 0 时同伴会受伤。 */
     private int hunger = 20;
     private static final int MAX_HUNGER = 20;
 
-    /** 饥饿计时器 — 每 600 ticks（30 秒）减少 1 点饥饿值 */
-    private int hungerTickCounter = 0;
-    private static final int HUNGER_TICK_INTERVAL = 600;
+    /**
+     * 饱和度（0-20，隐藏属性）。吃东西时恢复，优先于饥饿值消耗。
+     * 与玩家机制一致：饱和度 > 0 时先消耗饱和度，耗尽后才消耗饥饿值。
+     */
+    private float saturation = 5.0F;
+
+    /**
+     * 消耗度（0-4，隐藏属性）。行动（移动、战斗、跳跃）会增加消耗度，
+     * 达到 4 时消耗 1 点饱和度或饥饿值。与玩家机制一致。
+     */
+    private float exhaustion = 0.0F;
+    private static final float MAX_EXHAUSTION = 4.0F;
+
+    /** 自然回血计时器 — 与玩家的 foodTickTimer 类似 */
+    private int regenTickCounter = 0;
 
     /** 行为模式：跟随 / 待命 / 自由 */
     private CompanionMode mode = CompanionMode.FOLLOW;
@@ -94,6 +107,14 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
     /** 盔甲评估间隔 — 每 10 ticks（0.5 秒）检查一次是否需要更换盔甲 */
     private static final int ARMOR_EVAL_INTERVAL = 10;
     private int armorEvalCounter = 0;
+
+    /** 向玩家索要食物的冷却（防止刷屏）— 600 ticks = 30 秒 */
+    private static final int ASK_FOOD_COOLDOWN = 600;
+    private int askFoodCooldown = 0;
+
+    /** 进食间隔冷却 — 防止连续快速吃东西（20 ticks = 1 秒） */
+    private static final int EAT_COOLDOWN = 20;
+    private int eatCooldown = 0;
 
     public AICompanionEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -158,17 +179,21 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
                 aiTickHandler.tick();
             }
 
-            // 饥饿计时
-            hungerTickCounter++;
-            if (hungerTickCounter >= HUNGER_TICK_INTERVAL) {
-                hungerTickCounter = 0;
-                if (hunger > 0) {
-                    hunger--;
+            // ── 饥饿/饱和度/消耗度系统（与玩家机制一致）────────────────────
+            tickFoodAndRegen();
+
+            // ── 自动进食逻辑（优先级高于 AI 决策）─────────────────────────────
+            tickAutoEat();
+
+            // 移动增加消耗度（与玩家一致：冲刺 0.1/tick，行走约 0.01/tick）
+            if (isInWater()) {
+                addExhaustion(0.0125F); // 游泳
+            } else if (getDeltaMovement().horizontalDistanceSqr() > 0.01) {
+                // 正在移动
+                if (isSprinting()) {
+                    addExhaustion(0.1F); // 冲刺
                 } else {
-                    // 饥饿 — 像玩家在困难难度下一样受到伤害
-                    if (getHealth() > 1.0F) {
-                        hurt(damageSources().starve(), 1.0F);
-                    }
+                    addExhaustion(0.01F); // 行走
                 }
             }
 
@@ -239,6 +264,155 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
                 itemEntity.setItem(remainder);
             }
         }
+    }
+
+    /**
+     * 饥饿/饱和度/自然回血系统 — 与玩家机制一致。
+     * <p>
+     * 流程（每 tick 执行）：
+     * <ol>
+     *   <li>处理消耗度：达到 4.0 时消耗饱和度或饥饿值</li>
+     *   <li>自然回血：饥饿 >= 18 且饱和度 > 0 时，消耗饱和度回血</li>
+     *   <li>饥饿回血：饥饿 >= 18 且饱和度 = 0 时，缓慢回血（消耗饥饿值）</li>
+     *   <li>饥饿伤害：饥饿 = 0 时受到伤害（困难模式：扣到 1 HP）</li>
+     * </ol>
+     */
+    private void tickFoodAndRegen() {
+        // ── 消耗度处理（exhaustion → saturation → hunger）─────────────────
+        if (exhaustion > MAX_EXHAUSTION) {
+            exhaustion -= MAX_EXHAUSTION;
+            if (saturation > 0) {
+                saturation = Math.max(saturation - 1.0F, 0.0F);
+            } else if (hunger > 0) {
+                hunger--;
+            }
+        }
+
+        // ── 自然回血（与玩家的 foodTickTimer 逻辑一致）────────────────────
+        // 条件：饥饿 >= 18（9 格）且生命值未满
+        if (hunger >= 18 && getHealth() < getMaxHealth()) {
+            regenTickCounter++;
+            // 玩家机制：饱和度高时回血更快（每 tick 消耗饱和度），
+            // 饱和度低时每 80 tick（4 秒）回 1 HP
+            if (saturation > 0) {
+                // 饱和度 > 0：快速回血，约每 10 tick（0.5 秒）1 HP
+                if (regenTickCounter >= 10) {
+                    regenTickCounter = 0;
+                    heal(1.0F);
+                    // 消耗饱和度（玩家机制：回血消耗 6 点饱和度，但这里是简化的每 tick 消耗）
+                    // 实际玩家是每 4 点饱和度回 1 HP，我们用更平滑的方式
+                }
+                // 消耗饱和度用于回血
+                if (regenTickCounter == 0) {
+                    saturation = Math.max(saturation - 6.0F, 0.0F);
+                }
+            } else if (regenTickCounter >= 80) {
+                // 饱和度 = 0：慢速回血，每 80 tick（4 秒）1 HP
+                regenTickCounter = 0;
+                heal(1.0F);
+                // 消耗 1 点饥饿值（玩家机制）
+                if (hunger > 0) {
+                    hunger--;
+                }
+            }
+        } else {
+            regenTickCounter = 0;
+        }
+
+        // ── 饥饿伤害（困难模式：扣到 1 HP）────────────────────────────────
+        if (hunger <= 0) {
+            // 每 80 tick（4 秒）受到 1 点伤害，与玩家困难模式一致
+            // 使用 tickCount 取模避免额外字段
+            if (tickCount % 80 == 0 && getHealth() > 1.0F) {
+                hurt(damageSources().starve(), 1.0F);
+            }
+        }
+    }
+
+    /**
+     * 增加消耗度（由移动、战斗等活动调用）。
+     * 与玩家的 FoodData.addExhaustion() 一致。
+     *
+     * @param amount 消耗度增量（参见玩家常量：冲刺 0.1/tick，跳跃 0.05，攻击 0.1 等）
+     */
+    public void addExhaustion(float amount) {
+        exhaustion = Math.min(exhaustion + amount, 40.0F);
+    }
+
+    /**
+     * 自动进食逻辑 — 优先级高于 AI 决策。
+     * <p>
+     * 触发条件（满足任一）：
+     * <ul>
+     *   <li>血量不满 且 饥饿不满</li>
+     *   <li>饥饿值低于 1/3（小于 7）</li>
+     * </ul>
+     * 行为：
+     * <ul>
+     *   <li>空闲时立即吃东西，直到饥饿值补满</li>
+     *   <li>背包中没有食物时，向玩家索要</li>
+     * </ul>
+     */
+    private void tickAutoEat() {
+        // 冷却递减
+        if (askFoodCooldown > 0) {
+            askFoodCooldown--;
+        }
+        if (eatCooldown > 0) {
+            eatCooldown--;
+        }
+
+        // 检查是否需要进食
+        boolean healthNotFull = getHealth() < getMaxHealth();
+        boolean hungerNotFull = hunger < MAX_HUNGER;
+        boolean hungerLow = hunger < 7; // 低于 1/3
+
+        boolean shouldEat = (healthNotFull && hungerNotFull) || hungerLow;
+
+        if (!shouldEat) return;
+
+        // 如果正在执行其他动作，先取消（进食优先级高）
+        // 但不在战斗中取消（避免被打断）
+        if (getTarget() != null) return;
+
+        // 尝试找到食物
+        if (hasFoodInInventory()) {
+            // 有空闲且冷却结束时，启动进食动作（有动画和音效）
+            if (actionExecutor.isIdle() && eatCooldown <= 0) {
+                actionExecutor.startAction(Action.simple(ActionType.EAT, "自动进食恢复饥饿值"));
+                eatCooldown = EAT_COOLDOWN; // 设置冷却，防止连续快速吃东西
+            }
+        } else {
+            // 背包没有食物，向玩家索要（带冷却）
+            if (askFoodCooldown <= 0 && actionExecutor.isIdle()) {
+                askFoodCooldown = ASK_FOOD_COOLDOWN;
+                String name = getName().getString();
+                // 根据紧急程度选择不同消息
+                String message;
+                if (hunger <= 3) {
+                    message = "我快饿死了！谁有食物给我一点？";
+                } else if (hungerLow) {
+                    message = "我饿了，有谁有多余的食物吗？";
+                } else {
+                    message = "我受伤了需要吃东西恢复，有食物吗？";
+                }
+                // 广播给附近的玩家
+                actionExecutor.broadcast(message);
+            }
+        }
+    }
+
+    /**
+     * 检查背包中是否有食物。
+     */
+    private boolean hasFoodInInventory() {
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            var stack = inventory.getItem(i);
+            if (!stack.isEmpty() && stack.get(DataComponents.FOOD) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -389,9 +563,10 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
         }
         // 保存睡眠状态
         output.putBoolean("CurrentlySleeping", currentlySleeping);
-        // 保存饥饿值
+        // 保存饥饿系统（与玩家 FoodData 一致）
         output.putInt("Hunger", hunger);
-        output.putInt("HungerTickCounter", hungerTickCounter);
+        output.putFloat("Saturation", saturation);
+        output.putFloat("Exhaustion", exhaustion);
         // 保存行为模式
         output.putString("Mode", mode.name());
         // 保存拥有者
@@ -416,9 +591,10 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
         });
         // 加载睡眠状态
         currentlySleeping = input.getBooleanOr("CurrentlySleeping", false);
-        // 加载饥饿值
+        // 加载饥饿系统
         hunger = input.getIntOr("Hunger", MAX_HUNGER);
-        hungerTickCounter = input.getIntOr("HungerTickCounter", 0);
+        saturation = input.getFloatOr("Saturation", 5.0F);
+        exhaustion = input.getFloatOr("Exhaustion", 0.0F);
         // 加载行为模式
         String modeStr = input.getStringOr("Mode", CompanionMode.FOLLOW.name());
         try {
@@ -515,24 +691,19 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
         this.hunger = Math.max(0, Math.min(value, MAX_HUNGER));
     }
 
-    /**
-     * 尝试从背包中吃食物。
-     * 返回是否成功消耗了食物。
-     */
-    public boolean tryEat() {
-        for (int i = 0; i < inventory.getContainerSize(); i++) {
-            var stack = inventory.getItem(i);
-            if (!stack.isEmpty()) {
-                FoodProperties food = stack.get(DataComponents.FOOD);
-                if (food != null) {
-                    int nutrition = food.nutrition();
-                    setHunger(hunger + nutrition);
-                    stack.shrink(1);
-                    return true;
-                }
-            }
-        }
-        return false;
+    /** 获取当前饱和度（0-20） */
+    public float getSaturation() {
+        return saturation;
+    }
+
+    /** 设置饱和度，限制在 [0, hunger] 范围内（与玩家一致：饱和度不能超过饥饿值） */
+    public void setSaturation(float value) {
+        this.saturation = Math.max(0, Math.min(value, hunger));
+    }
+
+    /** 获取当前消耗度（0-4） */
+    public float getExhaustion() {
+        return exhaustion;
     }
 
     public ActionExecutor getActionExecutor() {

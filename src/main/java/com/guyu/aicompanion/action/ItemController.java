@@ -5,11 +5,16 @@ import com.guyu.aicompanion.ai.ChatHistory;
 import com.guyu.aicompanion.entity.AICompanionEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemUseAnimation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
 
@@ -17,10 +22,18 @@ import net.minecraft.world.phys.AABB;
  * 即时动作控制器 — 处理所有在一两个 tick 内完成的动作：
  * 聊天、进食、睡觉、醒来、丢弃物品、使用物品、放置方块。
  * <p>
- * 这些动作没有持续的 tick 循环 — 执行后直接调用
- * {@code executor.completeAction()} 回到 IDLE 状态。
+ * 进食动作是例外 — 它有持续的 tick 循环（eating 动画和音效）。
  */
 class ItemController extends ActionController {
+
+    /** 进食所需 tick 数（与玩家一致：32 ticks = 1.6 秒） */
+    private static final int EAT_DURATION = 32;
+    /** 进食音效间隔（每 4-5 tick 播放一次咀嚼声） */
+    private static final int EAT_SOUND_INTERVAL = 5;
+
+    // 进食状态
+    private int eatTicksRemaining = 0;
+    private ItemStack eatingItem = ItemStack.EMPTY;
 
     ItemController(AICompanionEntity companion, ChatHistory chatHistory, ActionExecutor executor) {
         super(companion, chatHistory, executor);
@@ -35,19 +48,135 @@ class ItemController extends ActionController {
     }
 
     void executeEat() {
+        // 防止重复进食：如果已经在进食中，直接跳过
+        if (eatTicksRemaining > 0) {
+            executor.completeAction();
+            return;
+        }
+
         if (companion.getHunger() >= companion.getMaxHunger()) {
             executor.announce("我不饿，不需要吃东西");
             executor.completeAction();
             return;
         }
-        // 尝试从背包中找食物
-        if (companion.tryEat()) {
-            companion.swing(InteractionHand.MAIN_HAND);
-            executor.announce("吃了点东西，饱食度恢复到 " + companion.getHunger());
-        } else {
+
+        // 从背包中找食物并移到主手
+        int foodSlot = findFoodInInventory();
+        if (foodSlot < 0) {
             executor.announce("背包里没有食物可以吃");
+            executor.completeAction();
+            return;
         }
+
+        // 将食物移到主手
+        ItemStack food = companion.getInventory().getItem(foodSlot);
+        eatingItem = food.copy();
+
+        // 保存主手原有物品
+        ItemStack oldHand = companion.getMainHandItem().copy();
+
+        // 装备食物到主手
+        companion.setItemInHand(InteractionHand.MAIN_HAND, food.copy());
+        companion.getInventory().setItem(foodSlot, ItemStack.EMPTY);
+
+        // 将原来的手持物品放回背包
+        if (!oldHand.isEmpty()) {
+            companion.addToInventory(oldHand);
+        }
+
+        // 开始进食（触发进食动画）
+        companion.startUsingItem(InteractionHand.MAIN_HAND);
+        eatTicksRemaining = EAT_DURATION;
+        executor.setState(ActionExecutor.State.EATING);
+
+        executor.announce("开始吃 " + eatingItem.getHoverName().getString());
+    }
+
+    /**
+     * 每 tick 驱动进食动作。播放音效，完成后消耗食物并恢复饥饿值。
+     */
+    void tickEat() {
+        if (eatTicksRemaining <= 0) {
+            finishEating();
+            return;
+        }
+
+        eatTicksRemaining--;
+
+        // 播放进食音效（每 5 tick 一次，类似玩家）
+        if (eatTicksRemaining % EAT_SOUND_INTERVAL == 0) {
+            ServerLevel level = (ServerLevel) companion.level();
+            level.playSound(null, companion.getX(), companion.getY(), companion.getZ(),
+                    SoundEvents.GENERIC_EAT,
+                    SoundSource.NEUTRAL,
+                    0.5F + 0.5F * level.getRandom().nextFloat(),
+                    level.getRandom().nextFloat() * 0.1F + 0.9F);
+        }
+
+        // 进食完成
+        if (eatTicksRemaining <= 0) {
+            finishEating();
+        }
+    }
+
+    /**
+     * 完成进食：消耗食物、恢复饥饿值、停止动画。
+     */
+    private void finishEating() {
+        // 停止使用物品（停止进食动画）
+        companion.stopUsingItem();
+
+        // 获取食物的营养值
+        if (!eatingItem.isEmpty()) {
+            FoodProperties food = eatingItem.get(DataComponents.FOOD);
+            if (food != null) {
+                int nutrition = food.nutrition();
+                // 饱和度恢复（与玩家 0.6 ratio 等效）
+                float saturationRestore = nutrition * 0.6F * 2.0F;
+                companion.setHunger(companion.getHunger() + nutrition);
+                companion.setSaturation(companion.getSaturation() + saturationRestore);
+            }
+
+            // 消耗主手中的食物
+            ItemStack held = companion.getMainHandItem();
+            held.shrink(1);
+
+            // 如果食物有剩余物品（如碗），放回背包
+            if (!held.isEmpty()) {
+                companion.addToInventory(held.copy());
+                held.setCount(0);
+            }
+
+            executor.announce("吃完了，饱食度恢复到 " + companion.getHunger());
+        }
+
+        // 重置状态
+        eatingItem = ItemStack.EMPTY;
         executor.completeAction();
+    }
+
+    /**
+     * 在背包中查找食物，返回格子索引。没有找到返回 -1。
+     */
+    private int findFoodInInventory() {
+        for (int i = 0; i < companion.getInventory().getContainerSize(); i++) {
+            ItemStack stack = companion.getInventory().getItem(i);
+            if (!stack.isEmpty() && stack.get(DataComponents.FOOD) != null) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * 取消进食动作时的清理。
+     */
+    void cleanupEat() {
+        if (eatTicksRemaining > 0) {
+            companion.stopUsingItem();
+            eatTicksRemaining = 0;
+            eatingItem = ItemStack.EMPTY;
+        }
     }
 
     void executeSleep() {

@@ -149,7 +149,7 @@ public class AICompanion {
     private void registerEntityAttributes(EntityAttributeCreationEvent event) {
         event.put(COMPANION.get(),
                 Mob.createMobAttributes()
-                        .add(Attributes.MAX_HEALTH, 40.0)
+                        .add(Attributes.MAX_HEALTH, 20.0)  // 与玩家一致
                         .add(Attributes.MOVEMENT_SPEED, 0.3)
                         .add(Attributes.ATTACK_DAMAGE, 4.0)
                         .build()

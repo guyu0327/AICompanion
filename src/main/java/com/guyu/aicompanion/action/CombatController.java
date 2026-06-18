@@ -376,6 +376,9 @@ class CombatController extends ActionController {
         companion.swing(InteractionHand.MAIN_HAND);
         attackCooldown = ATTACK_COOLDOWN;
 
+        // 攻击增加消耗度（与玩家一致：攻击成功 0.1，攻击挥空 0.3）
+        companion.addExhaustion(hit ? 0.1F : 0.3F);
+
         if (hit) {
             AICompanion.LOGGER.debug("[AI] 击中 {} (剩余 HP: {})",
                     attackTarget.getName().getString(),
