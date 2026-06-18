@@ -91,6 +91,9 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
     /** 睡觉回血间隔 — 每 100 ticks（5 秒）回复 1 HP */
     private static final int SLEEP_HEAL_INTERVAL = 100;
     private int sleepHealCounter = 0;
+    /** 盔甲评估间隔 — 每 10 ticks（0.5 秒）检查一次是否需要更换盔甲 */
+    private static final int ARMOR_EVAL_INTERVAL = 10;
+    private int armorEvalCounter = 0;
 
     public AICompanionEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -167,6 +170,13 @@ public class AICompanionEntity extends PathfinderMob implements MenuProvider {
                         hurt(damageSources().starve(), 1.0F);
                     }
                 }
+            }
+
+            // 盔甲自动装备（每 10 tick 评估一次，避免频繁遍历背包）
+            armorEvalCounter++;
+            if (armorEvalCounter >= ARMOR_EVAL_INTERVAL) {
+                armorEvalCounter = 0;
+                actionExecutor.autoEquipArmor();
             }
 
             // 睡觉时每 tick 强制 SLEEPING 姿态 + 回血

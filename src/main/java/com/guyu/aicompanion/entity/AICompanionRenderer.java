@@ -2,11 +2,14 @@ package com.guyu.aicompanion.entity;
 
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelLayers;
+import net.minecraft.client.model.player.PlayerModel;
+import net.minecraft.client.renderer.entity.ArmorModelSet;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.HumanoidMobRenderer;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
+import net.minecraft.client.renderer.entity.layers.HumanoidArmorLayer;
 import net.minecraft.client.renderer.entity.layers.ItemInHandLayer;
-import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
+import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.BowItem;
@@ -17,28 +20,37 @@ import net.minecraft.world.item.ItemStack;
  * AI 同伴实体渲染器 — 使用 Steve 玩家皮肤。
  * <p>
  * 添加 {@link ItemInHandLayer} 以渲染主手/副手物品；
+ * 添加 {@link HumanoidArmorLayer} 以渲染装备的盔甲；
  * 重写 {@link #extractRenderState} 调用 {@link HumanoidMobRenderer#extractHumanoidRenderState}
  * 填充手持物品、游泳/滑翔等数据；并手动设置手臂姿态（拉弓/持弩），
  * 因为 {@link LivingEntityRenderer} 本身不会设置手臂姿态。
  */
-public class AICompanionRenderer extends LivingEntityRenderer<AICompanionEntity, HumanoidRenderState, HumanoidModel<HumanoidRenderState>> {
+public class AICompanionRenderer extends LivingEntityRenderer<AICompanionEntity, AvatarRenderState, PlayerModel> {
 
     private static final Identifier STEVE_SKIN = Identifier.withDefaultNamespace("textures/entity/player/wide/steve.png");
 
     public AICompanionRenderer(EntityRendererProvider.Context context) {
-        super(context, new HumanoidModel<>(context.bakeLayer(ModelLayers.PLAYER)), 0.5F);
+        super(context, new PlayerModel(context.bakeLayer(ModelLayers.PLAYER), false), 0.5F);
         // 添加手持物品渲染层 — 使主手/副手物品可见
         this.addLayer(new ItemInHandLayer<>(this));
+        // 添加盔甲渲染层 — 使装备的盔甲可见
+        this.addLayer(new HumanoidArmorLayer<>(
+                this,
+                ArmorModelSet.bake(
+                        ModelLayers.PLAYER_ARMOR,
+                        context.getModelSet(),
+                        part -> new PlayerModel(part, false)),
+                context.getEquipmentRenderer()));
     }
 
     @Override
-    public Identifier getTextureLocation(HumanoidRenderState state) {
+    public Identifier getTextureLocation(AvatarRenderState state) {
         return STEVE_SKIN;
     }
 
     @Override
-    public HumanoidRenderState createRenderState() {
-        return new HumanoidRenderState();
+    public AvatarRenderState createRenderState() {
+        return new AvatarRenderState();
     }
 
     /**
@@ -50,7 +62,7 @@ public class AICompanionRenderer extends LivingEntityRenderer<AICompanionEntity,
      * 表现为弓蓄力但不抬起。
      */
     @Override
-    public void extractRenderState(AICompanionEntity entity, HumanoidRenderState state, float partialTicks) {
+    public void extractRenderState(AICompanionEntity entity, AvatarRenderState state, float partialTicks) {
         super.extractRenderState(entity, state, partialTicks);
         HumanoidMobRenderer.extractHumanoidRenderState(
                 entity, state, partialTicks, this.itemModelResolver);

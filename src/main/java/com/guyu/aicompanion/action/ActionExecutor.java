@@ -114,6 +114,14 @@ public class ActionExecutor {
     }
 
     /**
+     * 委托给战斗控制器 — 自动装备最佳盔甲。
+     * 由 {@code AICompanionEntity.tick()} 定期调用（有节流）。
+     */
+    public void autoEquipArmor() {
+        combatController.autoEquipArmor();
+    }
+
+    /**
      * 驱动状态机。每个服务器 tick 调用一次。
      */
     public void tick() {

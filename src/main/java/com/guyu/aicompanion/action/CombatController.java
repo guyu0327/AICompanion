@@ -10,6 +10,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.projectile.arrow.Arrow;
@@ -63,6 +64,8 @@ class CombatController extends ActionController {
     private int ticksSinceLastWeaponEval = 0;
     // 撤退冷却 — > 0 时表示正在撤退中，不再播报也不再启动新攻击
     private int retreatCooldown = 0;
+    // 盔甲播报去重 — 每个槽位记录上次装备的盔甲 ID
+    private final String[] lastAnnouncedArmorIds = new String[4]; // HEAD, CHEST, LEGS, FEET
 
     CombatController(AICompanionEntity companion, ChatHistory chatHistory, ActionExecutor executor) {
         super(companion, chatHistory, executor);
@@ -141,6 +144,69 @@ class CombatController extends ActionController {
         } else {
             AICompanion.LOGGER.debug("[Weapon] 背包中没有合适的 {} 武器",
                     useRanged ? "远程" : "近战");
+        }
+    }
+
+    /**
+     * 自动从背包装备最佳盔甲（由 AICompanionEntity.tick 定期调用）。
+     * 对每个盔甲槽位（头/胸/腿/脚），比较背包中的盔甲与已装备的盔甲，
+     * 如果背包中有更好的（护甲值 + 韧性更高），则自动替换。
+     */
+    public void autoEquipArmor() {
+        for (EquipmentSlot slot : new EquipmentSlot[]{
+                EquipmentSlot.HEAD, EquipmentSlot.CHEST,
+                EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+
+            ItemStack current = companion.getItemBySlot(slot);
+            float currentScore = getArmorScore(current, slot);
+
+            int bestSlot = -1;
+            float bestScore = currentScore;
+
+            // 在背包中寻找更好的盔甲
+            for (int i = 0; i < companion.getInventory().getContainerSize(); i++) {
+                ItemStack stack = companion.getInventory().getItem(i);
+                if (stack.isEmpty()) continue;
+
+                // 检查这件物品是否是该槽位的盔甲（有该槽位的护甲属性）
+                float score = getArmorScore(stack, slot);
+                if (score <= 0) continue; // 不是该槽位的盔甲或没有护甲值
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestSlot = i;
+                }
+            }
+
+            // 找到更好的盔甲，执行替换
+            if (bestSlot >= 0) {
+                ItemStack newArmor = companion.getInventory().getItem(bestSlot);
+                ItemStack oldArmor = current.copy();
+
+                // 装备新盔甲
+                companion.setItemSlot(slot, newArmor.copy());
+                companion.getInventory().setItem(bestSlot, ItemStack.EMPTY);
+
+                // 将旧盔甲放回背包
+                if (!oldArmor.isEmpty()) {
+                    companion.getInventory().setItem(bestSlot, oldArmor);
+                }
+
+                // 播报（仅当盔甲真正变化时）
+                String armorId = newArmor.getItem()
+                        .builtInRegistryHolder().key().identifier().getPath();
+                int slotIndex = switch (slot) {
+                    case HEAD -> 0;
+                    case CHEST -> 1;
+                    case LEGS -> 2;
+                    case FEET -> 3;
+                    default -> -1;
+                };
+                if (slotIndex >= 0 && !armorId.equals(lastAnnouncedArmorIds[slotIndex])) {
+                    lastAnnouncedArmorIds[slotIndex] = armorId;
+                    executor.announce("装备了 " + armorId);
+                }
+            }
         }
     }
 
@@ -336,6 +402,10 @@ class CombatController extends ActionController {
         modeLockRemaining = 0;
         lastAnnouncedWeaponId = "";
         lastAnnouncedTargetId = "";
+        // 重置盔甲播报去重
+        for (int i = 0; i < lastAnnouncedArmorIds.length; i++) {
+            lastAnnouncedArmorIds[i] = null;
+        }
     }
 
     // ── 武器选择辅助 ─────────────────────────────────────────────────────────
@@ -483,6 +553,31 @@ class CombatController extends ActionController {
     private float getCompanionAttackDamage() {
         var attr = companion.getAttributes().getInstance(Attributes.ATTACK_DAMAGE);
         return attr != null ? (float) attr.getValue() : ATTACK_DAMAGE;
+    }
+
+    /**
+     * 计算盔甲在指定槽位的综合防护分数（护甲值 + 韧性）。
+     * 仅计算适用于该 equipmentSlot 的属性。
+     * 空物品或非该槽位盔甲返回 0。
+     */
+    private float getArmorScore(ItemStack stack, EquipmentSlot equipmentSlot) {
+        if (stack.isEmpty()) return 0.0F;
+        ItemAttributeModifiers modifiers = stack.get(DataComponents.ATTRIBUTE_MODIFIERS);
+        if (modifiers == null) return 0.0F;
+
+        float score = 0.0F;
+        for (ItemAttributeModifiers.Entry entry : modifiers.modifiers()) {
+            // 只计算适用于该槽位的属性（EquipmentSlotGroup 包含该 EquipmentSlot）
+            if (!entry.slot().test(equipmentSlot)) continue;
+
+            String attrId = entry.attribute().getRegisteredName();
+            AttributeModifier mod = entry.modifier();
+            // 护甲值 (armor) 和韧性 (armor_toughness) 都计入评分
+            if (attrId.contains("armor") || attrId.contains("toughness")) {
+                score += (float) mod.amount();
+            }
+        }
+        return score;
     }
 
     // ── 弓箭射击 ─────────────────────────────────────────────────────────────
